@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../HagoromoChan.Contracts/HagoromoChan.Contracts.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.15" />
+  </ItemGroup>
+</Project>
