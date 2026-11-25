@@ -43,11 +43,12 @@ public partial class MainWindow
         RefreshReactionSuspension();
     }
 
-    private void RefreshReactionSuspension()
+    private void RefreshReactionSuspension(bool closingClick = false)
     {
         if (!_initialized || _reactionsClosed) return;
-        var suspended = _pointerDown || _contextMenu is { IsOpen: true };
-        _reactions.Suspend(suspended, Environment.TickCount64);
+        var menuOpen = _contextMenu is { IsOpen: true };
+        var suspended = _pointerDown || menuOpen;
+        _reactions.Suspend(suspended, Environment.TickCount64, closingClick && !menuOpen);
         if (!AnimationsEnabled || suspended)
         {
             _reactionTimer.Stop();
@@ -115,6 +116,7 @@ public partial class MainWindow
                 ReactionPose.Idle => "idle",
                 ReactionPose.Unread => "unread",
                 ReactionPose.Wave => "waving",
+                ReactionPose.Farewell => "farewell",
                 ReactionPose.Review => "review",
                 ReactionPose.Thinking => "thinking",
                 ReactionPose.Jump => "jumping",

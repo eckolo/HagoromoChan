@@ -8,7 +8,7 @@ namespace HagoromoChan.Desktop;
 // The first nine poses are stored row-major in the atlas. All poses share a foot anchor.
 internal sealed class BundledReactionDrawing
 {
-    private enum Pose { Neutral, Up, Down, Left, Right, Blink, Wave, Jump, Concerned, Thinking, Unread }
+    private enum Pose { Neutral, Up, Down, Left, Right, Blink, Wave, Jump, Concerned, Thinking, Unread, Farewell }
     // The four cells of the unread-eye atlas are ordered left, right, up, down.
     private enum UnreadGaze { Front, Left, Right, Up, Down }
     private const int ThinkingSteps = 48;
@@ -17,6 +17,7 @@ internal sealed class BundledReactionDrawing
     private readonly BitmapSource _thinkingHead;
     private readonly BitmapSource _thinkingHand;
     private readonly BitmapSource[] _unreadEyes = new BitmapSource[4];
+    private readonly BitmapSource _farewellHand;
     private readonly Rect _canvas;
     private readonly Dictionary<(Pose Pose, int Step), ImageSource> _drawings = new();
     private double _displayScale = 1;
@@ -31,7 +32,7 @@ internal sealed class BundledReactionDrawing
 
         var w = sheet.PixelWidth / 3;
         var h = sheet.PixelHeight / 3;
-        _cells = new BitmapSource[(int)Pose.Unread + 1];
+        _cells = new BitmapSource[(int)Pose.Farewell + 1];
         for (var i = 0; i < 9; i++)
         {
             var cell = new CroppedBitmap(sheet, new Int32Rect(i % 3 * w, i / 3 * h, w, h));
@@ -49,6 +50,8 @@ internal sealed class BundledReactionDrawing
         _cells[(int)Pose.Thinking] = LoadLayer("MascotThinkingBody.png");
         _thinkingHead = LoadLayer("MascotThinkingHead.png");
         _thinkingHand = LoadLayer("MascotThinkingHand.png");
+        _cells[(int)Pose.Farewell] = LoadLayer("MascotFarewellBody.png");
+        _farewellHand = LoadLayer("MascotFarewellHand.png");
         _cells[(int)Pose.Unread] = LoadLayer("MascotUnread.png");
         var eyes = LoadLayer("MascotUnreadEyes.png", 2, 2);
         for (var i = 0; i < _unreadEyes.Length; i++)
@@ -115,6 +118,7 @@ internal sealed class BundledReactionDrawing
             "review" => Draw(Pose.Down),
             "failed" => Draw(Pose.Concerned),
             "waving" => Draw(Pose.Wave, (int)Math.Round(2 * arc)),
+            "farewell" => Draw(Pose.Farewell, (int)Math.Round(9 * arc * arc)),
             "jumping" => Draw(Pose.Jump, (int)Math.Round(12 * arc)),
             _ => RestingImage
         };
@@ -148,7 +152,7 @@ internal sealed class BundledReactionDrawing
         var lift = pose is Pose.Jump or Pose.Wave ? step * _canvas.Height / 200 : 0;
         var top = Math.Max(0, _canvas.Height - height - lift);
         var drawing = new DrawingGroup();
-        if (pose == Pose.Thinking)
+        if (pose is Pose.Thinking or Pose.Farewell)
             drawing.ClipGeometry = new RectangleGeometry(_canvas);
         using (var context = drawing.Open())
         {
@@ -159,6 +163,15 @@ internal sealed class BundledReactionDrawing
                 DrawThinkingLayers(context, bounds, step);
             else if (pose == Pose.Unread && step != (int)UnreadGaze.Front)
                 context.DrawImage(_unreadEyes[step - 1], bounds);
+            else if (pose == Pose.Farewell)
+            {
+                // Rotate only the hand about the cuff in the 288 x 368 master artwork.
+                var wristX = bounds.Left + bounds.Width * 90.8 / 288;
+                var wristY = bounds.Top + bounds.Height * 231 / 368;
+                context.PushTransform(new RotateTransform(-step, wristX, wristY));
+                context.DrawImage(_farewellHand, bounds);
+                context.Pop();
+            }
         }
         image = new DrawingImage(drawing);
         image.Freeze();

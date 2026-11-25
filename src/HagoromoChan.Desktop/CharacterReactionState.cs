@@ -2,7 +2,7 @@ using HagoromoChan.Contracts;
 
 namespace HagoromoChan.Desktop;
 
-internal enum ReactionPose { Still, Idle, Unread, Thinking, Look, Wave, Review, Failed, Jump }
+internal enum ReactionPose { Still, Idle, Unread, Thinking, Look, Farewell, Wave, Review, Failed, Jump }
 
 internal readonly record struct ReactionFrame(
     ReactionPose Pose, long ElapsedMs, int DurationMs, double GazeX = 0, double GazeY = 0)
@@ -81,14 +81,17 @@ internal sealed class CharacterReactionState
     private long _started;
     private ReactionPose? _pending;
     private long _pendingSince;
-    private long? _lastWave;
+    private ReactionPose? _lastGreeting;
+    private long _lastGreetingAt;
     private long _waitingSince;
     private long? _unreadSince;
     private long? _windowMoved;
     private (double X, double Y) _gazeFrom;
     private (double X, double Y) _gazeTarget;
     private bool _enabled = true;
-    private bool _suspended;
+    private enum Suspension { None, Interaction, ClosingPress }
+    private Suspension _suspension;
+    private bool IsSuspended => _suspension != Suspension.None;
     private bool _stopped;
 
     public bool WaitingForReply => _awaitingReplies.Count > 0;
@@ -103,11 +106,21 @@ internal sealed class CharacterReactionState
         else _unreadSince = null;
     }
 
-    public void Click(long nowMs)
+    public void ConversationChanged(bool wasVisible, bool visible, long nowMs, bool waveOnOpen = true)
     {
-        if (!_enabled || _stopped || _suspended || (_lastWave.HasValue && nowMs - _lastWave.Value < 800)) return;
-        _lastWave = nowMs;
-        Request(ReactionPose.Wave, nowMs);
+        if (_stopped || wasVisible == visible) return;
+        var pose = visible ? ReactionPose.Wave : ReactionPose.Farewell;
+        if ((_playing is ReactionPose.Wave or ReactionPose.Farewell) && _playing != pose)
+            _playing = null;
+        if (visible && !waveOnOpen)
+        {
+            _lastGreeting = null;
+            return;
+        }
+        if (!_enabled || IsSuspended || (_lastGreeting == pose && nowMs - _lastGreetingAt < 800)) return;
+        _lastGreeting = pose;
+        _lastGreetingAt = nowMs;
+        Request(pose, nowMs);
     }
 
     public void SendAccepted(string requestId, long nowMs)
@@ -139,23 +152,30 @@ internal sealed class CharacterReactionState
         _enabled = enabled;
         _playing = null;
         _pending = null;
-        _lastWave = null;
+        _lastGreeting = null;
         _windowMoved = null;
         _waitingSince = nowMs;
     }
 
-    public void Suspend(bool suspended, long nowMs)
+    public void Suspend(bool suspended, long nowMs, bool closingClick = false)
     {
-        if (_stopped || _suspended == suspended) return;
-        _suspended = suspended;
-        if (suspended)
+        var next = Suspension.None;
+        if (suspended) next = closingClick ? Suspension.ClosingPress : Suspension.Interaction;
+        if (_stopped || _suspension == next) return;
+        if (!IsSuspended)
         {
-            _playing = null;
             _pending = null;
             _windowMoved = null;
         }
-        else
-            Advance(nowMs);
+
+        // Pressing freezes the drawing immediately. A genuine close click can reveal
+        // only the still-current part of a message reaction, using its original start.
+        if (!closingClick || _playing is not (ReactionPose.Jump or ReactionPose.Review or ReactionPose.Failed))
+            _playing = null;
+        if (!closingClick && _pending == ReactionPose.Failed)
+            _pending = null;
+        _suspension = next;
+        if (!suspended) Advance(nowMs);
     }
 
     public void Stop()
@@ -171,7 +191,7 @@ internal sealed class CharacterReactionState
     // Only direction and observation time are used. Screen Y increases downwards.
     public void ObserveWindow(double x, double y, long nowMs)
     {
-        if (!WaitingForReply || !_enabled || _suspended || _stopped) return;
+        if (!WaitingForReply || !_enabled || IsSuspended || _stopped) return;
         var distance = double.Hypot(x, y);
         if (!double.IsFinite(distance)) return;
         if (distance < 0.001)
@@ -191,7 +211,7 @@ internal sealed class CharacterReactionState
 
     public ReactionFrame Sample(long nowMs)
     {
-        if (!_enabled || _stopped || _suspended) return new(ReactionPose.Still, 0, 0);
+        if (!_enabled || _stopped || IsSuspended) return new(ReactionPose.Still, 0, 0);
         Advance(nowMs);
         if (_playing is { } pose)
             return new(pose, nowMs - _started, Duration(pose));
@@ -235,13 +255,14 @@ internal sealed class CharacterReactionState
     {
         if (!_enabled || _stopped) return;
         Advance(nowMs);
-        // The enum orders one-shot poses by priority: Wave < Review < Failed < Jump.
-        if (!_suspended && (_playing is null || pose > _playing.Value))
+        // Greetings yield to all message reactions.
+        if (!IsSuspended && (_playing is null || pose > _playing.Value))
         {
             _playing = pose;
             _started = nowMs;
         }
-        else if ((pose is ReactionPose.Review or ReactionPose.Jump)
+        else if ((pose is ReactionPose.Review or ReactionPose.Jump ||
+                (pose == ReactionPose.Failed && _suspension == Suspension.ClosingPress))
             && (_pending is null || pose >= _pending.Value))
         {
             _pending = pose;
@@ -255,7 +276,7 @@ internal sealed class CharacterReactionState
             _pending = null;
         if (_playing is { } current && nowMs - _started >= Duration(current))
             _playing = null;
-        if (!_suspended && _playing is null && _pending is not null)
+        if (!IsSuspended && _pending is { } pending && (_playing is null || pending > _playing.Value))
         {
             _playing = _pending;
             _started = nowMs;
@@ -266,6 +287,7 @@ internal sealed class CharacterReactionState
     private static int Duration(ReactionPose pose) => pose switch
     {
         ReactionPose.Wave => 600,
+        ReactionPose.Farewell => 700,
         ReactionPose.Review or ReactionPose.Failed => 800,
         ReactionPose.Jump => 650,
         _ => throw new ArgumentOutOfRangeException(nameof(pose))

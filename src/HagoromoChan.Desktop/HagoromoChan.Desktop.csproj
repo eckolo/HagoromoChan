@@ -19,5 +19,7 @@
     <Resource Include="Assets/MascotThinkingHand.png" />
     <Resource Include="Assets/MascotUnread.png" />
     <Resource Include="Assets/MascotUnreadEyes.png" />
+    <Resource Include="Assets/MascotFarewellBody.png" />
+    <Resource Include="Assets/MascotFarewellHand.png" />
   </ItemGroup>
 </Project>

@@ -405,7 +405,7 @@ public partial class MainWindow : Window
             if (_imeComposing || _compositionJustEnded)
                 return; // Let the IME handle Escape before hiding the composer.
             e.Handled = true;
-            _panels.CloseComposer();
+            ChangeConversationByUser(_panels.CloseComposer);
             return;
         }
 
@@ -468,7 +468,7 @@ public partial class MainWindow : Window
         var answer = messages.FirstOrDefault(message => _preferences.UnreadIds.Contains(message.Id))
             ?? messages.LastOrDefault();
         if (answer is not null)
-            _panels.ShowMessage(answer.Id);
+            ChangeConversationByUser(() => _panels.ShowMessage(answer.Id));
         RefreshStatus();
     }
 

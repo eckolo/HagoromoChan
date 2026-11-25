@@ -16,6 +16,9 @@ namespace HagoromoChan.Desktop;
 
 public partial class MainWindow : Window
 {
+    private bool _farewellAfterMenu;
+    private bool ConversationVisible => _panels.ConversationOpen && _panels.Conversation.IsVisible;
+
     private void WireDesktopEvents()
     {
         _placementTimer.Tick += (_, _) => CheckPlacement();
@@ -49,7 +52,7 @@ public partial class MainWindow : Window
         _dragAnchor = NativeDesktop.Bounds(this);
         _pointerDown = Mouse.Capture(MascotSurface);
         _dragging = false;
-        RefreshReactionSuspension();
+        RefreshReactionSuspension(closingClick: _pointerDown && ConversationVisible);
         e.Handled = true;
     }
 
@@ -67,6 +70,7 @@ public partial class MainWindow : Window
                 && Math.Abs(dy) < SystemParameters.MinimumVerticalDragDistance * scale)
                 return;
             _dragging = true;
+            RefreshReactionSuspension();
         }
 
         var size = NativeDesktop.Bounds(this);
@@ -88,7 +92,7 @@ public partial class MainWindow : Window
         _dragging = false;
         if (Mouse.Captured == MascotSurface)
             Mouse.Capture(null);
-        RefreshReactionSuspension();
+        RefreshReactionSuspension(closingClick: clicked && ConversationVisible);
         e.Handled = true;
         if (moved)
             RememberPosition();
@@ -98,7 +102,6 @@ public partial class MainWindow : Window
                 DismissSurfaces();
             else
                 OpenBoth();
-            _reactions.Click(Environment.TickCount64);
         }
     }
 
@@ -176,6 +179,24 @@ public partial class MainWindow : Window
         RefreshStatus();
     }
 
+    private void ChangeConversationByUser(Action change, bool waveOnOpen = false)
+    {
+        var wasVisible = ConversationVisible;
+        change();
+        var visible = ConversationVisible;
+        if (wasVisible == visible || _closing || _exitRequested || _controlRequest) return;
+
+        if (!visible && _contextMenu is { IsOpen: true })
+        {
+            // A menu item can run before Closed releases the reaction suspension.
+            _farewellAfterMenu = true;
+            return;
+        }
+
+        _farewellAfterMenu = false;
+        _reactions.ConversationChanged(wasVisible, visible, Environment.TickCount64, waveOnOpen);
+    }
+
     private void DismissSurfaces()
     {
         if (!_initialized || _closing)
@@ -184,7 +205,7 @@ public partial class MainWindow : Window
         _expandedStatus = false;
         if (_contextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
-        _panels.HideSurfaces();
+        ChangeConversationByUser(_panels.HideSurfaces);
     }
 
     private bool PrepareConversation()
@@ -198,28 +219,28 @@ public partial class MainWindow : Window
     private void OpenBoth()
     {
         if (!PrepareConversation()) return;
-        _panels.OpenBoth();
+        ChangeConversationByUser(_panels.OpenBoth, waveOnOpen: true);
         RefreshStatus();
     }
 
     private void OpenComposer()
     {
         if (!PrepareConversation()) return;
-        _panels.FocusInput();
+        ChangeConversationByUser(_panels.FocusInput);
         RefreshStatus();
     }
 
     private void ToggleComposer()
     {
         if (!PrepareConversation()) return;
-        _panels.ToggleInput();
+        ChangeConversationByUser(_panels.ToggleInput);
         RefreshStatus();
     }
 
     private void ToggleHistory()
     {
         if (!PrepareConversation()) return;
-        _panels.ToggleHistory();
+        ChangeConversationByUser(_panels.ToggleHistory);
         RefreshStatus();
     }
 
@@ -296,6 +317,12 @@ public partial class MainWindow : Window
         {
             _contextMenu = null;
             RefreshReactionSuspension();
+            if (_farewellAfterMenu)
+            {
+                _farewellAfterMenu = false;
+                if (!_closing && !_exitRequested && !_controlRequest)
+                    _reactions.ConversationChanged(true, ConversationVisible, Environment.TickCount64);
+            }
         };
         menu.IsOpen = true;
         RefreshReactionSuspension();

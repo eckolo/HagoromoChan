@@ -64,7 +64,7 @@ internal static class CharacterReactionTests
     {
         var state = new CharacterReactionState();
         Check(state.Sample(0).Pose == ReactionPose.Idle, "initial idle");
-        state.Click(10);
+        state.ConversationChanged(false, true, 10);
         Check(state.Sample(20).Pose == ReactionPose.Wave, "click");
         state.SendAccepted("own-1", 30);
         Check(state.Sample(31).Pose == ReactionPose.Review, "send preempts click");
@@ -73,11 +73,11 @@ internal static class CharacterReactionTests
         state.Receive([Row(1, "reply", "own-1"), Row(2, "proactive_1")], 50);
         Check(state.Sample(55).Pose == ReactionPose.Jump, "one jump for a complete batch");
         Check(state.Sample(700).Pose == ReactionPose.Idle, "single batch does not queue a second jump");
-        state.Click(710);
+        state.ConversationChanged(false, true, 710);
         Check(state.Sample(710).Pose == ReactionPose.Idle, "repeated click cooldown");
 
         state.Suspend(true, 1000);
-        state.Click(1020);
+        state.ConversationChanged(false, true, 1020);
         state.SendAccepted("own-2", 1030);
         state.Receive([Row(3, "reply-2", "own-2")], 1040);
         Check(state.Sample(1080).Pose == ReactionPose.Still, "interaction keeps a stable frame");
@@ -100,6 +100,102 @@ internal static class CharacterReactionTests
         state.Receive([Row(8, "late-reply")], 6100);
         Check(!state.WaitingForReply && state.Sample(6200).Pose == ReactionPose.Still,
             "closing discards pending work and ignores later callbacks");
+    }
+
+    public static void ConversationGestures()
+    {
+        var state = new CharacterReactionState();
+        state.ConversationChanged(false, false, 0);
+        state.ConversationChanged(true, true, 10);
+        Check(state.Sample(20).Pose == ReactionPose.Idle, "failure or a remaining conversation surface is silent");
+        state.ConversationChanged(false, true, 50);
+        Check(state.Sample(100) is { Pose: ReactionPose.Wave, DurationMs: 600 }, "opening preserves the wave");
+        state.ConversationChanged(true, false, 200);
+        Check(state.Sample(205) is { Pose: ReactionPose.Farewell, ElapsedMs: 5, DurationMs: 700 },
+            "closing before the opening wave ends immediately uses a smaller wave");
+        state.ConversationChanged(true, false, 220);
+        Check(state.Sample(225).ElapsedMs == 25, "a duplicate close does not restart a wave");
+        state.ConversationChanged(false, true, 300);
+        Check(state.Sample(305).Pose == ReactionPose.Wave, "immediate reopening replaces farewell");
+        state.ConversationChanged(true, false, 365);
+        state.ConversationChanged(false, true, 395, waveOnOpen: false);
+        Check(state.Sample(400).Pose == ReactionPose.Idle, "reopening from a panel ends farewell without an opening wave");
+
+        state.SetUnread(true, 1000);
+        state.ConversationChanged(true, false, 1050);
+        Check(state.Sample(1749).Pose == ReactionPose.Farewell && state.Sample(1750).Pose == ReactionPose.Unread,
+            "closing ends the gesture without acknowledging unread");
+        state.SendAccepted("awaited", 1800);
+        state.ConversationChanged(true, false, 1850);
+        Check(state.Sample(1860).Pose == ReactionPose.Review && state.Sample(2600).Pose == ReactionPose.Thinking,
+            "send acknowledgement wins, no stale farewell is queued");
+        state.Receive([Row(1, "reply", "awaited")], 2700);
+        state.ConversationChanged(false, true, 2740);
+        state.ConversationChanged(true, false, 2780);
+        Check(state.Sample(2790).Pose == ReactionPose.Jump && state.Sample(3350).Pose == ReactionPose.Unread,
+            "incoming reply wins both transitions");
+        state.Suspend(true, 3400);
+        state.ConversationChanged(true, false, 3500);
+        state.Suspend(false, 3650);
+        Check(state.Sample(3650).Pose == ReactionPose.Unread, "a suspended gesture is never deferred by playback");
+        state.SetEnabled(false, 3800);
+        state.ConversationChanged(true, false, 3900);
+        Check(state.Sample(3930).Pose == ReactionPose.Still, "animation off");
+        state.SetEnabled(true, 4000);
+        state.Stop();
+        state.ConversationChanged(false, true, 4100);
+        Check(state.Sample(4100).Pose == ReactionPose.Still, "closing the app stays still");
+    }
+
+    public static void CloseDuringMessage()
+    {
+        foreach (var expected in new[] { ReactionPose.Jump, ReactionPose.Review, ReactionPose.Failed })
+        {
+            var state = new CharacterReactionState();
+            if (expected == ReactionPose.Jump) state.Receive([Row(1, "incoming")], 100);
+            else if (expected == ReactionPose.Review) state.SendAccepted("own", 100);
+            else state.Fail(100);
+            state.Suspend(true, 200, closingClick: true);
+            Check(state.Sample(250).Pose == ReactionPose.Still, "pointer down immediately freezes the image");
+            state.Suspend(false, 300, closingClick: true);
+            state.ConversationChanged(true, false, 300);
+            var resumed = state.Sample(325);
+            Check(resumed.Pose == expected && resumed.ElapsedMs == 225, "a closing click preserves original elapsed time");
+            Check(state.Sample(100 + resumed.DurationMs).Pose is ReactionPose.Idle or ReactionPose.Thinking,
+                "the suppressed farewell never replays after the message");
+        }
+
+        var priority = new CharacterReactionState();
+        priority.SendAccepted("pending", 0);
+        priority.Suspend(true, 100, closingClick: true);
+        priority.Receive([Row(2, "reply", "pending")], 150);
+        priority.Suspend(false, 200, closingClick: true);
+        priority.ConversationChanged(true, false, 200);
+        Check(priority.Sample(205) is { Pose: ReactionPose.Jump, ElapsedMs: 5 },
+            "arrival during press takes precedence over the held acknowledgement");
+        priority.Suspend(true, 300, closingClick: true);
+        priority.Suspend(false, 950, closingClick: true);
+        priority.ConversationChanged(true, false, 950);
+        Check(priority.Sample(951).Pose != ReactionPose.Jump, "a long hold cannot replay an expired jump");
+        var failure = new CharacterReactionState();
+        failure.Suspend(true, 1000, closingClick: true);
+        failure.Fail(1020);
+        failure.Suspend(false, 1100, closingClick: true);
+        failure.ConversationChanged(true, false, 1100);
+        Check(failure.Sample(1110).Pose == ReactionPose.Failed, "definite failure arriving during a close has priority");
+
+        foreach (var transition in new[] { "drag", "lost capture", "menu", "opening click" })
+        {
+            var state = new CharacterReactionState();
+            state.Receive([Row(3, "in-flight")], 0);
+            bool closes = transition != "opening click";
+            state.Suspend(true, 100, closingClick: closes);
+            if (transition is "drag" or "menu") state.Suspend(true, 130);
+            state.Suspend(false, 180);
+            if (transition == "opening click") state.ConversationChanged(false, true, 180);
+            Check(state.Sample(200).Pose == (closes ? ReactionPose.Idle : ReactionPose.Wave),
+                "no interrupted message resumes after " + transition);
+        }
     }
 
     public static void Unread()
@@ -133,7 +229,7 @@ internal static class CharacterReactionTests
         state.SendAccepted("own", 2500);
         Check(state.Sample(2501).Pose == ReactionPose.Review && state.Sample(3310).Pose == ReactionPose.Thinking,
             "local acceptance and waiting for a reply both take precedence");
-        state.Click(3500);
+        state.ConversationChanged(false, true, 3500);
         Check(state.Sample(3501).Pose == ReactionPose.Wave, "click takes precedence");
         history.Add(Row(3, "answer", "own"));
         Read(4500);
