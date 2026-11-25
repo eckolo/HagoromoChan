@@ -5,6 +5,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWindowsForms>true</UseWindowsForms>
     <UseAppHost>true</UseAppHost>
+    <ApplicationIcon>Assets/HagoromoChan.ico</ApplicationIcon>
     <AssemblyName>HagoromoChan</AssemblyName>
     <RootNamespace>HagoromoChan.Launcher</RootNamespace>
   </PropertyGroup>

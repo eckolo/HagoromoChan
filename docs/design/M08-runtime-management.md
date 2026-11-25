@@ -51,3 +51,7 @@ Startup.ps1は標準ユーザーのスタートアップフォルダーにHagoro
 v1.0.2ではユーザーがLauncher、Relay、Desktopの管理起動と状態枠展開を確認。Tunnelは起動直後にexit code 1となり、stdio実行ファイルパスの区切り文字がすべて脱落するエラーを記録した。公式v0.0.21固定SHAの `parseCommandArgv` は二重引用符内でもバックスラッシュをエスケープとして処理する。Windowsプロセス生成用の引用とは別の `BuildTunnelStdioCommand` で各バックスラッシュを二重化し、外側は既存のWindows引数引用を維持する。認証設定・既存プロファイル・DB・購読は変更しない。公式ソース: [config.go](https://github.com/openai/tunnel-client/blob/714f2d67844b660af25754f1d19b0360b346b13b/pkg/runtimeconfig/config.go#L2835-L2901)。
 
 状態枠の幅が中・大で逆転し、吹き出しと重なる旨の実機指摘を受領。固定300 DIP案は採用せず、ユーザーの追加指示に従い本体実表示幅に一致させる。M08の既存状態枠調整の範囲内で扱い、M03を再開したり別IDを追加したりしない。会話領域が開いている場合は重なりを許容する従来のフォールバックを行わない。小さな作業領域で表示できない場合の右クリック代替操作を維持する。幅・位置・詳細の可読性はWindows実機未検証。
+
+### v1.0.4 アプリケーションアイコン
+
+ユーザー指定の既存プラグイン用画像 `hagoromo_plugin_icon.png` をもとに16/32/48/256ピクセルを含む共通ICOを追加。256ピクセル画像は元PNGをそのまま格納し、小サイズは縮小。LauncherとDesktopの `ApplicationIcon` で同じICOを指定し、通常のpublish時にexeへ埋め込む。配置後の手動操作やアイコン変更スクリプトは不要。Relay、Mascot.png、既存プラグイン設定、通信とDBは変更しない。[素材情報](../../src/HagoromoChan.Launcher/Assets/README.md)。v1.0.3の管理起動・会話往復成功はユーザー報告で確認済みだが、v1.0.4の実機ビルド・exeアイコン表示は未確認。
