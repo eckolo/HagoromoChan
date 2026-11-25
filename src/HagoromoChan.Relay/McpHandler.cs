@@ -80,11 +80,13 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             instructions = "This plugin receives requests from the owner's HagoromoChan desktop app. " +
                 "Use get_context to read a request and its preceding app conversation. " +
                 "Use reply with the matching request_id to deliver the final answer to the app. " +
-                "The app receives only text explicitly submitted through reply."
+                "For a standalone message with no desktop request, use send_message only within the owner's authorized task and plugin permissions. " +
+                "Never use it instead of reply for a request, and retry with the same message_id and exact text. " +
+                "The app receives only text explicitly submitted through reply or send_message."
         };
     }
 
-    private static object ListTools(JsonElement parameters)
+    private object ListTools(JsonElement parameters)
     {
         ValidateCursor(parameters);
         return new
@@ -122,6 +124,27 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
                         additionalProperties = false
                     },
                     annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
+                },
+                new
+                {
+                    name = "send_message",
+                    description = "Append a standalone message to the owner's HagoromoChan desktop conversation, " +
+                        "not a reply to a desktop request. Use for an authorized proactive update or explicit request to notify the desktop. " +
+                        "Generate one nonzero UUID in standard hyphenated form for each intended message and reuse the same ID and exact text on retry. " +
+                        "Success means stored by the relay, not read by the owner. Do not duplicate a final reply with this tool.",
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            channel_id = new { type = "string", @enum = new[] { store.ChannelId }, description = "The owner's desktop channel." },
+                            message_id = new { type = "string", description = "A caller-chosen stable UUID in D format for this standalone message; reuse on retries." },
+                            text = new { type = "string", minLength = 1, maxLength = 32768, description = "The complete standalone plain-text message for the desktop." }
+                        },
+                        required = new[] { "channel_id", "message_id", "text" },
+                        additionalProperties = false
+                    },
+                    annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
                 }
             }
         };
@@ -130,9 +153,11 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
     private object CallTool(JsonElement parameters)
     {
         var name = RequiredString(parameters, "name");
-        if (name is not ("get_context" or "reply"))
+        if (name is not ("get_context" or "reply" or "send_message"))
             throw InvalidParams("Unknown tool.");
         var arguments = RequiredObject(parameters, "arguments");
+        if (name == "send_message")
+            return SendStandaloneMessage(arguments);
         ValidateProperties(arguments, name == "reply" ? ["request_id", "text"] : ["request_id"]);
         var requestId = RequiredString(arguments, "request_id");
         var text = name == "reply" ? RequiredString(arguments, "text") : null;
@@ -162,6 +187,30 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         catch (ConflictException)
         {
             return ToolError("a_different_final_reply_already_exists");
+        }
+    }
+
+    private object SendStandaloneMessage(JsonElement arguments)
+    {
+        ValidateProperties(arguments, ["channel_id", "message_id", "text"]);
+        if (RequiredString(arguments, "channel_id") != store.ChannelId)
+            throw InvalidParams("Unknown channel.");
+        var messageId = RequiredString(arguments, "message_id");
+        var text = RequiredString(arguments, "text");
+        try
+        {
+            var message = store.AddProactiveMessage(messageId, text);
+            return ToolResult(new { channel_id = store.ChannelId,
+                message_id = Guid.Parse(messageId).ToString("D"), stored_message_id = message.Id,
+                sequence = message.Sequence, stored = true });
+        }
+        catch (ValidationException)
+        {
+            return ToolError("invalid_message_id_or_text");
+        }
+        catch (ConflictException)
+        {
+            return ToolError("a_different_message_already_exists");
         }
     }
 
