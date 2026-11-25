@@ -179,29 +179,28 @@ internal static class ConversationUiChecks
         })
         {
             var zone = OverlayLayout.ConversationZone(area, mascot, 1);
-            var hoverWidth = OverlayLayout.AuxiliaryWidth(area, zone, 220, 150, 8);
-            var hover = OverlayLayout.NearbyAuxiliary(area, mascot, hoverWidth, 46, 8,
-                OverlaySide.Above, new[] { zone.Bounds });
-            True(hover.HasValue, "Hover fits beside the reserved conversation zone.");
-            var h = hover!.Value;
             var statusWidth = OverlayLayout.AuxiliaryWidth(area, zone, 300, 155, 8);
-            var status = OverlayLayout.NearbyAuxiliary(area, mascot, statusWidth, 180, 8,
-                OverlaySide.Below, new[] { zone.Bounds, h }, h);
-            True(status.HasValue, "Status fits near the mascot or hover without using screen corners.");
+            var status = OverlayLayout.StatusPlacement(area, mascot, zone, statusWidth, 180, 8);
+            True(status.HasValue, "Status fits directly adjacent to the mascot.");
             var s = status!.Value;
-            foreach (var rect in new[] { h, s })
-            {
-                True(rect.X >= area.X && rect.Y >= area.Y && rect.Right <= area.Right && rect.Bottom <= area.Bottom,
-                    "Auxiliary is inside its work area.");
-                True(!OverlayLayout.Intersects(rect, mascot) && !OverlayLayout.Intersects(rect, zone.Bounds),
-                    "Auxiliary avoids the mascot and reserved conversation zone.");
-            }
-            True(!OverlayLayout.Intersects(h, s), "Auxiliary panels do not overlap.");
-            True(Distance(h, mascot) <= 8, "Hover remains adjacent to the mascot.");
-            True(Distance(s, mascot) <= 8 || Distance(s, h) <= 8, "Status is adjacent to a local anchor.");
-            Equal(status, OverlayLayout.NearbyAuxiliary(area, mascot, statusWidth, 180, 8,
-                OverlaySide.Below, new[] { zone.Bounds, h }, h));
+            True(s.X >= area.X && s.Y >= area.Y && s.Right <= area.Right && s.Bottom <= area.Bottom,
+                "Status remains inside its work area.");
+            True(!OverlayLayout.Intersects(s, mascot) && !OverlayLayout.Intersects(s, zone.Bounds),
+                "Status avoids the mascot and the reserved conversation zone when space permits.");
+            True(Distance(s, mascot) <= 8, "No gap for a removed hover menu.");
+            Equal(status, OverlayLayout.StatusPlacement(area, mascot, zone, statusWidth, 180, 8));
+            if (mascot.Bottom + 8 + 180 <= area.Bottom)
+                Equal(mascot.Bottom + 8, s.Y);
         }
+
+        // Bottom-edge mascots cannot fit a status panel below; it should be
+        // immediately above, not above a now-removed hover slot.
+        var bottomArea = new ScreenRect(0, 0, 1920, 1040);
+        var bottomMascot = new ScreenRect(1725, 764, 177, 260);
+        var bottomZone = OverlayLayout.ConversationZone(bottomArea, bottomMascot, 1);
+        var bottomStatus = OverlayLayout.StatusPlacement(bottomArea, bottomMascot, bottomZone, 190, 80, 8);
+        True(bottomStatus.HasValue, "Status fits immediately above the bottom-edge mascot.");
+        Equal(bottomMascot.Y - 8, bottomStatus!.Value.Bottom);
 
         // Large empty corners are deliberately not valid fallback targets.
         var blocked = OverlayLayout.NearbyAuxiliary(new ScreenRect(0, 0, 1000, 800),

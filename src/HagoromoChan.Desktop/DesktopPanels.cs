@@ -72,7 +72,6 @@ internal sealed class DesktopPanels
         int Page, int PageCount, double Width, OverlaySide Side, bool Unread);
     private DockPanel? _composerBubble;
 
-    public Window Hover { get; }
     public Window Conversation { get; }
     public Window Status { get; }
     public bool ConversationOpen => _visibility.Any;
@@ -98,17 +97,10 @@ internal sealed class DesktopPanels
     public Button OpenInputButton { get; } = ActionButton("入力");
     public Button UnreadButton { get; } = ActionButton("新着");
 
-    public DesktopPanels(Window owner, Action toggleComposer, Action toggleHistory,
-        Action openSettings, Action dismissAll, Action openUnread, Action<string> markRead, Action openComposer)
+    public DesktopPanels(Window owner, Action dismissAll, Action openUnread, Action<string> markRead, Action openComposer)
     {
         _owner = owner;
         _markRead = markRead;
-
-        var hoverRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        hoverRow.Children.Add(ActionButton("会話", toggleComposer));
-        hoverRow.Children.Add(ActionButton("履歴", toggleHistory));
-        hoverRow.Children.Add(ActionButton("設定", openSettings));
-        Hover = Surface("操作", Frame(hoverRow, AssistantPaper, 5), () => SetVisible(Hover!, false));
 
         MessageInput.IsReadOnly = false;
         MessageInput.MaxLength = DraftLimit;
@@ -213,7 +205,7 @@ internal sealed class DesktopPanels
         actions.Children.Add(SymbolButton("⧉", "状態の詳細をコピー", CopyStatus));
         _statusContent.Children.Add(actions);
         Status = Surface("通知・状態", Frame(_statusContent, Dark, 8), () => SetVisible(Status!, false));
-        _windows = [Hover, Conversation, Status];
+        _windows = [Conversation, Status];
     }
 
     public void Attach()
@@ -692,42 +684,17 @@ internal sealed class DesktopPanels
             }
             else HideIfVisible(Conversation);
 
-            // Reserve the same local conversation zone and hover slot regardless
-            // of their visibility. Never search remote corners of the work area.
-            var reserved = new List<ScreenRect> { zone.Bounds };
-            var hoverWidth = OverlayLayout.AuxiliaryWidth(area, zone, Px(220), Px(150), gap);
-            var hoverHeight = Math.Min(area.Height, Px(46));
-            var hover = OverlayLayout.NearbyAuxiliary(area, anchor, hoverWidth, hoverHeight, gap,
-                OverlaySide.Above, reserved);
-            hover ??= OverlayLayout.NearbyAuxiliary(area, anchor, hoverWidth, hoverHeight, gap,
-                OverlaySide.Above, []);
-            if (hover is { } hoverSlot)
-                reserved.Add(hoverSlot);
-            ScreenRect? status = null;
+            // There is no hover menu or invisible reservation for it. Put
+            // status directly next to the mascot, below if the work area permits.
             if (Wants(Status))
             {
                 var statusWidth = OverlayLayout.AuxiliaryWidth(area, zone, Px(300), Px(155), gap);
                 _statusContent.Measure(new Size(Math.Max(1, statusWidth / scale - 18), double.PositiveInfinity));
                 var statusHeight = Math.Min(area.Height, Px(Math.Max(46, _statusContent.DesiredSize.Height + 18)));
-                status = OverlayLayout.NearbyAuxiliary(area, anchor, statusWidth, statusHeight, gap,
-                    OverlaySide.Below, reserved, hover);
-                if (status is null)
-                {
-                    // Permit the conversation zone as a last local fallback.
-                    IReadOnlyList<ScreenRect> occupied = hover is { } h ? [h] : [];
-                    status = OverlayLayout.NearbyAuxiliary(area, anchor, statusWidth, statusHeight, gap,
-                        OverlaySide.Below, occupied, hover);
-                }
-                // If both auxiliary surfaces cannot coexist, prioritize state/error
-                // access; the context menu still exposes the hover commands.
-                status ??= OverlayLayout.NearbyAuxiliary(area, anchor, statusWidth, statusHeight, gap,
-                    OverlaySide.Below, []);
+                var status = OverlayLayout.StatusPlacement(area, anchor, zone, statusWidth, statusHeight, gap);
+                if (status is { } bounds) ShowAt(Status, bounds);
+                else HideIfVisible(Status);
             }
-            if (Wants(Hover) && hover is { } hoverBounds &&
-                (status is not { } occupiedStatus || !OverlayLayout.Intersects(hoverBounds, occupiedStatus)))
-                ShowAt(Hover, hoverBounds);
-            else HideIfVisible(Hover);
-            if (status is { } statusBounds) ShowAt(Status, statusBounds);
             else HideIfVisible(Status);
         }
         finally { _arranging = false; }
@@ -771,7 +738,7 @@ internal sealed class DesktopPanels
     private void ShowAt(Window window, ScreenRect rect)
     {
         _ = NativeDesktop.Handle(window);
-        if ((window == Hover || window == Status) && _hooked.Add(window))
+        if (window == Status && _hooked.Add(window))
             NativeDesktop.PreventMouseActivation(window);
         if (window.IsVisible)
         {

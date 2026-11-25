@@ -18,22 +18,6 @@ public partial class MainWindow : Window
 {
     private void WireDesktopEvents()
     {
-        MouseEnter += (_, _) => EnterMascot();
-        MouseLeave += (_, _) => LeaveHoverRegion();
-        _panels.Hover.MouseEnter += (_, _) => _hoverOut.Stop();
-        _panels.Hover.MouseLeave += (_, _) => LeaveHoverRegion();
-        _hoverIn.Tick += (_, _) =>
-        {
-            _hoverIn.Stop();
-            if (_initialized && !_pointerDown && !_suppressHoverUntilLeave && _contextMenu is null && IsMouseOver)
-                _panels.SetVisible(_panels.Hover, true);
-        };
-        _hoverOut.Tick += (_, _) =>
-        {
-            _hoverOut.Stop();
-            if (!IsMouseOver && !_panels.Hover.IsMouseOver)
-                _panels.SetVisible(_panels.Hover, false);
-        };
         _placementTimer.Tick += (_, _) => CheckPlacement();
         MascotImage.PreviewMouseLeftButtonDown += BeginPointer;
         MascotImage.PreviewMouseMove += MovePointer;
@@ -53,32 +37,6 @@ public partial class MainWindow : Window
             e.Handled = true;
             OpenSettings();
         };
-    }
-
-    private void EnterMascot()
-    {
-        _hoverOut.Stop();
-        if (_initialized && !_pointerDown && !_suppressHoverUntilLeave && _contextMenu is null && !_panels.Wants(_panels.Hover))
-        {
-            _hoverIn.Stop();
-            _hoverIn.Start();
-        }
-    }
-
-    private void LeaveHoverRegion()
-    {
-        if (!IsMouseOver)
-            _suppressHoverUntilLeave = false;
-        _hoverIn.Stop();
-        _hoverOut.Stop();
-        _hoverOut.Start();
-    }
-
-    private void HideHover()
-    {
-        _hoverIn.Stop();
-        _hoverOut.Stop();
-        _panels.SetVisible(_panels.Hover, false);
     }
 
     private void BeginPointer(object sender, MouseButtonEventArgs e)
@@ -106,7 +64,6 @@ public partial class MainWindow : Window
                 && Math.Abs(dy) < SystemParameters.MinimumVerticalDragDistance * scale)
                 return;
             _dragging = true;
-            HideHover();
         }
 
         var size = NativeDesktop.Bounds(this);
@@ -214,8 +171,6 @@ public partial class MainWindow : Window
         if (!_initialized || _closing)
             return;
         _compactSuppressed = true;
-        _suppressHoverUntilLeave = IsMouseOver;
-        HideHover();
         if (_contextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
         _panels.HideSurfaces();
@@ -225,7 +180,6 @@ public partial class MainWindow : Window
     {
         if (!_initialized || _closing) return false;
         _compactSuppressed = false;
-        HideHover();
         RefreshHistory();
         return true;
     }
@@ -262,7 +216,6 @@ public partial class MainWindow : Window
     {
         if (!_initialized || _closing)
             return;
-        HideHover();
         var menu = new ContextMenu
         {
             PlacementTarget = MascotImage,
@@ -317,8 +270,6 @@ public partial class MainWindow : Window
         menu.Closed += (_, _) =>
         {
             _contextMenu = null;
-            if (!_closing && !_exitRequested && IsMouseOver)
-                EnterMascot();
         };
         menu.IsOpen = true;
     }

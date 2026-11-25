@@ -153,6 +153,13 @@ internal static class OverlayLayout
         return null;
     }
 
+    // Prefer the free corridor below the mascot, then immediately above or to
+    // its side. Do not reserve an invisible hover menu or a remote screen corner.
+    public static ScreenRect? StatusPlacement(ScreenRect area, ScreenRect mascot,
+        OverlayPlacement conversation, int width, int height, int gap) =>
+        NearbyAuxiliary(area, mascot, width, height, gap, OverlaySide.Below, [conversation.Bounds])
+        ?? NearbyAuxiliary(area, mascot, width, height, gap, OverlaySide.Below, []);
+
     public static bool Intersects(ScreenRect a, ScreenRect b) =>
         a.X < b.Right && a.Right > b.X && a.Y < b.Bottom && a.Bottom > b.Y;
 

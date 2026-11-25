@@ -40,8 +40,6 @@ public partial class MainWindow : Window
     private readonly string? _assetWarning;
     private string? _preferencesWarning;
     private bool _preferencesSaveBlocked;
-    private readonly DispatcherTimer _hoverIn = new() { Interval = TimeSpan.FromMilliseconds(200) };
-    private readonly DispatcherTimer _hoverOut = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private readonly DispatcherTimer _placementTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private bool _initialized;
     private bool _closing;
@@ -55,7 +53,6 @@ public partial class MainWindow : Window
     private double _lastScale;
     private ContextMenu? _contextMenu;
     private bool _compactSuppressed;
-    private bool _suppressHoverUntilLeave;
     private RelayStatus? _status;
     private bool _connectionProblem;
 
@@ -97,8 +94,7 @@ public partial class MainWindow : Window
         Width = Height * _assetPixelWidth / _assetPixelHeight;
         Topmost = _preferences.Topmost;
 
-        _panels = new DesktopPanels(this, ToggleComposer, ToggleHistory, OpenSettings,
-            DismissSurfaces, OpenUnread, MarkRead, OpenComposer);
+        _panels = new DesktopPanels(this, DismissSurfaces, OpenUnread, MarkRead, OpenComposer);
         MessageInput.PreviewKeyDown += MessageInput_PreviewKeyDown;
         _panels.DraftChanged += RefreshComposer;
         MessageInput.LostKeyboardFocus += MessageInput_LostKeyboardFocus;
@@ -137,8 +133,6 @@ public partial class MainWindow : Window
         if (_exitRequested || _closing)
             return;
         _exitRequested = true;
-        _hoverIn.Stop();
-        _hoverOut.Stop();
         _placementTimer.Stop();
 
         // Leave the active ContextMenu/Popup event stack before shutting down.
@@ -166,8 +160,6 @@ public partial class MainWindow : Window
             return;
 
         _closing = true;
-        _hoverIn.Stop();
-        _hoverOut.Stop();
         _placementTimer.Stop();
         _panels.PrepareForShutdown();
         if (_contextMenu is { IsOpen: true } menu)
