@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace HagoromoChan.Desktop;
@@ -133,10 +132,6 @@ public partial class MainWindow
                 }
             }
 
-            var scale = VisualTreeHelper.GetDpi(MascotImage);
-            var factor = Math.Min(MascotImage.ActualWidth * scale.DpiScaleX / _assetPixelWidth,
-                MascotImage.ActualHeight * scale.DpiScaleY / _assetPixelHeight);
-            if (factor > 0) _reactionArtwork.SetDisplayScale(factor);
             var progress = frame.DurationMs > 0 ? (double)frame.ElapsedMs / frame.DurationMs : 0;
             var image = _reactionArtwork.Frame(action, progress, direction.X, direction.Y);
             if (!ReferenceEquals(image, MascotImage.Source)) MascotImage.Source = image;

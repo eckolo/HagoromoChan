@@ -96,7 +96,8 @@ public partial class MainWindow : Window
         var artwork = MascotArtwork.Load(dataDirectory, out var assetWarning, out var bundledArtwork);
         _reactionArtwork = new CharacterReactionArtwork(artwork, dataDirectory, bundledArtwork);
         _assetWarning = _reactionArtwork.Warning ?? assetWarning;
-        MascotImage.Source = artwork;
+        _reactionArtwork.SetDisplayScale(Math.Min(1, (double)_preferences.Height / artwork.PixelHeight));
+        MascotImage.Source = _reactionArtwork.RestingImage;
         _assetPixelWidth = artwork.PixelWidth;
         _assetPixelHeight = artwork.PixelHeight;
         Height = Math.Min(_preferences.Height, _assetPixelHeight);

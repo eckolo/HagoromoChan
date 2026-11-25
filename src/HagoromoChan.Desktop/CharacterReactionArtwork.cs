@@ -17,36 +17,36 @@ internal sealed class CharacterReactionArtwork
     {
         _original = original;
         var packDirectory = Path.Combine(dataDirectory, "reactions", "default");
-        if (File.Exists(Path.Combine(packDirectory, "pack.json")))
+        try
         {
-            try
-            {
+            if (File.Exists(Path.Combine(packDirectory, "pack.json")))
                 _pack = CharacterReactionPack.Load(packDirectory, bundledArtwork,
                     Path.Combine(dataDirectory, "mascot.png"));
-            }
-            catch (Exception error) when (error is InvalidDataException or IOException or UnauthorizedAccessException
-                or FormatException or NotSupportedException or ArgumentException or InvalidOperationException
-                or OverflowException or System.Text.Json.JsonException or System.Runtime.InteropServices.COMException)
-            {
-                Warning = "アクション素材を読み込めないため、静止画で表示します。" + error.Message;
-            }
+            else if (bundledArtwork)
+                _bundled = new BundledReactionDrawing(original);
         }
-        else if (bundledArtwork && original.PixelWidth == 530 && original.PixelHeight == 780)
+        catch (Exception error) when (error is InvalidDataException or IOException or UnauthorizedAccessException
+            or FormatException or NotSupportedException or ArgumentException or InvalidOperationException
+            or OverflowException or System.Text.Json.JsonException or System.Runtime.InteropServices.COMException)
         {
-            _bundled = new BundledReactionDrawing(original);
+            Warning = "アクション素材を読み込めないため、静止画で表示します。" + error.Message;
         }
     }
 
     public bool CanAnimate => _bundled is not null || _pack is not null;
+    public ImageSource RestingImage => _pack is null
+        ? _bundled?.RestingImage ?? _original
+        : Frame("frozen", 0);
     public string? Warning { get; }
 
     public void SetDisplayScale(double physicalPixelsPerArtworkPixel)
     {
-        if (_pack is null || !double.IsFinite(physicalPixelsPerArtworkPixel) || physicalPixelsPerArtworkPixel <= 0)
+        if (!double.IsFinite(physicalPixelsPerArtworkPixel) || physicalPixelsPerArtworkPixel <= 0)
             return;
         var scale = Math.Min(1, physicalPixelsPerArtworkPixel);
         if (_displayScale == scale) return;
         _displayScale = scale;
+        _bundled?.SetDisplayScale(scale);
         _packImages.Clear();
     }
 
@@ -57,7 +57,7 @@ internal sealed class CharacterReactionArtwork
         progress = double.IsFinite(progress) ? Math.Clamp(progress, 0, 1) : 0;
         gazeX = double.IsFinite(gazeX) ? Math.Clamp(gazeX, -1, 1) : 0;
         gazeY = double.IsFinite(gazeY) ? Math.Clamp(gazeY, -1, 1) : -1;
-        if (_pack is null) return _bundled?.Frame(action, progress, gazeX, gazeY) ?? _original;
+        if (_pack is null) return _bundled?.Frame(action, progress, gazeX, gazeY, Environment.TickCount64) ?? _original;
 
         var bitmap = _pack.Select(action, progress, gazeX, gazeY);
         if (_packImages.TryGetValue(bitmap, out var result)) return result;

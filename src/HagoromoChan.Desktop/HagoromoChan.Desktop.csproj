@@ -13,5 +13,6 @@
   <ItemGroup>
     <ProjectReference Include="../HagoromoChan.Contracts/HagoromoChan.Contracts.csproj" />
     <Resource Include="Assets/Mascot.png" />
+    <Resource Include="Assets/MascotReactions.png" />
   </ItemGroup>
 </Project>

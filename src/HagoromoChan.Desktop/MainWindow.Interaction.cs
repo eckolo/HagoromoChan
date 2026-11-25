@@ -144,6 +144,11 @@ public partial class MainWindow : Window
             _lastBounds = current;
             _lastArea = area;
             _lastScale = scale;
+            _reactionArtwork.SetDisplayScale(Math.Min((double)current.Width / _assetPixelWidth,
+                (double)current.Height / _assetPixelHeight));
+            RestingSilhouette.Source = _reactionArtwork.RestingImage;
+            if (!_reactionTimer.IsEnabled)
+                MascotImage.Source = RestingSilhouette.Source;
             _panels.Arrange();
         }
     }
