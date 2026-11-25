@@ -25,7 +25,7 @@ public partial class MainWindow : Window
         _hoverIn.Tick += (_, _) =>
         {
             _hoverIn.Stop();
-            if (_initialized && !_pointerDown && _contextMenu is null && IsMouseOver)
+            if (_initialized && !_pointerDown && !_suppressHoverUntilLeave && _contextMenu is null && IsMouseOver)
                 _panels.SetVisible(_panels.Hover, true);
         };
         _hoverOut.Tick += (_, _) =>
@@ -58,7 +58,7 @@ public partial class MainWindow : Window
     private void EnterMascot()
     {
         _hoverOut.Stop();
-        if (_initialized && !_pointerDown && _contextMenu is null && !_panels.Wants(_panels.Hover))
+        if (_initialized && !_pointerDown && !_suppressHoverUntilLeave && _contextMenu is null && !_panels.Wants(_panels.Hover))
         {
             _hoverIn.Stop();
             _hoverIn.Start();
@@ -67,6 +67,8 @@ public partial class MainWindow : Window
 
     private void LeaveHoverRegion()
     {
+        if (!IsMouseOver)
+            _suppressHoverUntilLeave = false;
         _hoverIn.Stop();
         _hoverOut.Stop();
         _hoverOut.Start();
@@ -130,7 +132,12 @@ public partial class MainWindow : Window
         if (moved)
             RememberPosition();
         else if (clicked)
-            OpenComposer();
+        {
+            if (_panels.ConversationOpen)
+                DismissSurfaces();
+            else
+                OpenComposer();
+        }
     }
 
     private void RestorePosition(bool reset = false)
@@ -155,12 +162,14 @@ public partial class MainWindow : Window
             return;
         var area = NativeDesktop.WorkArea(this);
         var scale = NativeDesktop.Scale(this);
-        var height = Math.Max(24, Math.Min(_preferences.Height,
-            Math.Min(area.Height / scale - 16, (area.Width / scale - 16) / _assetRatio)));
-        if (Math.Abs(Height - height) > .1)
+        var pixels = OverlayLayout.MascotPixels(_assetPixelWidth, _assetPixelHeight,
+            _preferences.Height, scale, area);
+        var height = pixels.Height / scale;
+        var width = pixels.Width / scale;
+        if (Math.Abs(Height - height) > .001 || Math.Abs(Width - width) > .001)
         {
             Height = height;
-            Width = height * _assetRatio;
+            Width = width;
             UpdateLayout();
         }
         var current = NativeDesktop.Bounds(this);
@@ -200,17 +209,25 @@ public partial class MainWindow : Window
         RefreshStatus();
     }
 
+    private void DismissSurfaces()
+    {
+        if (!_initialized || _closing)
+            return;
+        _compactSuppressed = true;
+        _suppressHoverUntilLeave = IsMouseOver;
+        HideHover();
+        if (_contextMenu is { IsOpen: true } menu)
+            menu.IsOpen = false;
+        _panels.HideSurfaces();
+    }
+
     private void OpenComposer()
     {
         if (!_initialized || _closing)
             return;
+        _compactSuppressed = false;
         HideHover();
-        if (!_panels.Wants(_panels.Bubble))
-        {
-            var latest = Answers().LastOrDefault();
-            if (latest is not null)
-                ShowReply(latest.Id);
-        }
+        RefreshHistory();
         _panels.FocusInput();
         RefreshStatus();
     }
@@ -219,13 +236,10 @@ public partial class MainWindow : Window
     {
         if (!_initialized || _closing)
             return;
+        _compactSuppressed = false;
         HideHover();
+        RefreshHistory();
         _panels.FocusHistory();
-        if (!_historyOpened)
-        {
-            _historyOpened = true;
-            ScrollToLatest();
-        }
         RefreshStatus();
     }
 
@@ -254,7 +268,7 @@ public partial class MainWindow : Window
         };
         menu.Items.Add(top);
         var size = new MenuItem { Header = "表示サイズ" };
-        foreach (var (label, height) in new[] { ("小（120）", 120), ("標準（180）", 180), ("大（260）", 260) })
+        foreach (var (label, height) in new[] { ("小（120）", 120), ("中（180）", 180), ("大・標準（260）", 260) })
         {
             var item = new MenuItem { Header = label, IsCheckable = true, IsChecked = _preferences.Height == height };
             item.Click += (_, _) =>

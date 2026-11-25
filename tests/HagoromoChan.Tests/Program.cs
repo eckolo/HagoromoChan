@@ -22,7 +22,11 @@ var tests = new (string Name, Action Run)[]
     ("MCP protocol, signatures, secure callbacks and two-turn conversation", ProtocolChecks.RunAll),
     ("Desktop overlay placement and work-area bounds", DesktopUiChecks.Placement),
     ("Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
-    ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity)
+    ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
+    ("Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
+    ("Conversation stack expands upward and contracts without dropping stored messages", ConversationUiChecks.StackNavigation),
+    ("Conversation zone is independent of content and mascot never upscales", ConversationUiChecks.FixedZoneAndSourceSize),
+    ("Display preference migration makes the former large size standard", ConversationUiChecks.PreferencesMigration)
 };
 
 var failures = 0;

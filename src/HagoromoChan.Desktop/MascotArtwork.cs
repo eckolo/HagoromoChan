@@ -53,7 +53,11 @@ internal static class MascotArtwork
         }
         if (!transparent || !visible)
             throw new InvalidDataException("背景透過の立ち絵PNGを指定してください。");
-        converted.Freeze();
-        return converted;
+        // Normalize metadata to 96 DPI. The window still constrains the real
+        // physical pixel size to the source dimensions on each monitor.
+        var bitmap = BitmapSource.Create(converted.PixelWidth, converted.PixelHeight,
+            96, 96, PixelFormats.Bgra32, null, pixels, stride);
+        bitmap.Freeze();
+        return bitmap;
     }
 }

@@ -24,7 +24,7 @@ public partial class MainWindow : Window
             _storageBlocked = false;
             if (_pending is not null)
             {
-                MessageInput.Text = _pending.Text;
+                _panels.SetDraftText(_pending.Text);
                 ShowSendFeedback("前回の送信結果を確認しています。未受理の場合は再試行できます。");
             }
             else
@@ -72,10 +72,6 @@ public partial class MainWindow : Window
                 QueueText.Text = "送信・返信状態は未確認";
                 ConnectionIndicator.Fill = new SolidColorBrush(Color.FromRgb(217, 187, 122));
                 ShowConnectionError(DescribeError(error));
-                if (!_historyLoaded)
-                {
-                    EmptyHistoryText.Text = "中継との接続を待っています。";
-                }
             }
 
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
@@ -85,8 +81,6 @@ public partial class MainWindow : Window
     private async Task ReadMessagesAsync(CancellationToken cancellationToken)
     {
         var firstCompleteRead = !_historyLoaded;
-        var scrollToEnd = firstCompleteRead || IsAtBottom();
-        var addedAssistantMessage = false;
         MessagePage page;
         do
         {
@@ -99,8 +93,7 @@ public partial class MainWindow : Window
 
             foreach (var message in page.Messages)
             {
-                var added = AddMessage(message);
-                addedAssistantMessage |= added && message.Role == "assistant";
+                AddMessage(message);
                 if (MatchesPending(message))
                 {
                     _pendingAccepted = true;
@@ -114,21 +107,10 @@ public partial class MainWindow : Window
 
         _historyLoaded = true;
         ObserveReplies(firstCompleteRead);
-        EmptyHistoryText.Visibility = _messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyHistoryText.Text = "羽衣ちゃんへのメッセージを入力してください。";
 
         if (_pendingAccepted && !_sending)
         {
             FinishAcceptedMessage();
-        }
-
-        if (scrollToEnd)
-        {
-            ScrollToLatest();
-        }
-        else if (addedAssistantMessage)
-        {
-            NewMessagesButton.Visibility = Visibility.Visible;
         }
 
         RefreshComposer();
@@ -148,7 +130,6 @@ public partial class MainWindow : Window
         }
 
         _messages.Insert(index, new MessageDisplay(message));
-        EmptyHistoryText.Visibility = Visibility.Collapsed;
         return true;
     }
 
@@ -184,8 +165,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_pending is null && (!_historyLoaded || string.IsNullOrWhiteSpace(MessageInput.Text)))
+        if (_pending is null && (!_historyLoaded || string.IsNullOrWhiteSpace(_panels.DraftText)))
         {
+            return;
+        }
+
+        if (_pending is null && _panels.DraftText.Length > 32768)
+        {
+            ShowSendFeedback("送信できる文字数は32768文字までです。下書きを調整してください。");
             return;
         }
 
@@ -202,7 +189,7 @@ public partial class MainWindow : Window
             if (_pending is null)
             {
                 var lastAssistant = _messages.LastOrDefault(item => item.Message.Role == "assistant");
-                var request = new SendMessageRequest(Guid.NewGuid().ToString("D"), MessageInput.Text,
+                var request = new SendMessageRequest(Guid.NewGuid().ToString("D"), _panels.DraftText,
                     lastAssistant?.Message.Id);
 
                 // Persist the request ID and exact text before any network side effect.
@@ -226,8 +213,8 @@ public partial class MainWindow : Window
                 }
 
                 FinishAcceptedMessage();
-                ScrollToLatest();
-                // Read status after local acceptance; never report that Dot already replied.
+                RefreshHistory();
+                _panels.SelectLatest();
                 // The regular polling loop remains responsible for authoritative queue counts.
             }
             finally
@@ -259,7 +246,7 @@ public partial class MainWindow : Window
             _pendingStore.Clear();
             _pending = null;
             _pendingAccepted = false;
-            MessageInput.Clear();
+            _panels.SetDraftText("");
             ShowSendFeedback(null);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
@@ -289,10 +276,10 @@ public partial class MainWindow : Window
         }
 
         SendButton.IsEnabled = !_sending && (_storageBlocked || _pending is not null
-            || (_historyLoaded && !string.IsNullOrWhiteSpace(MessageInput.Text)));
+            || (_historyLoaded && !string.IsNullOrWhiteSpace(_panels.DraftText)));
         if (_initialized)
         {
-            _panels.Arrange();
+            _panels.RequestArrange();
             RefreshStatus();
         }
     }
@@ -342,19 +329,22 @@ public partial class MainWindow : Window
         _ => error.Message
     };
 
-    private bool IsAtBottom() => HistoryScroll.ScrollableHeight - HistoryScroll.VerticalOffset <= 32;
-
-    private void ScrollToLatest()
+    private void BeginComposition()
     {
-        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => HistoryScroll.ScrollToEnd());
-        NewMessagesButton.Visibility = Visibility.Collapsed;
+        _imeComposing = true;
+        _panels.SetComposing(true);
     }
 
     private void EndComposition()
     {
         _imeComposing = false;
         _compositionJustEnded = true;
-        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () => _compositionJustEnded = false);
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            _compositionJustEnded = false;
+            if (!_imeComposing)
+                _panels.SetComposing(false);
+        }));
     }
 
     private async void SendButton_Click(object sender, RoutedEventArgs e) => await SendMessageAsync();
@@ -402,7 +392,7 @@ public partial class MainWindow : Window
             if (_imeComposing || _compositionJustEnded)
                 return; // Let the IME handle Escape before hiding the composer.
             e.Handled = true;
-            _panels.SetVisible(_panels.Composer, false);
+            _panels.CloseComposer();
             return;
         }
 
@@ -416,82 +406,56 @@ public partial class MainWindow : Window
         await SendMessageAsync();
     }
 
-    private void MessageInput_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) =>
-        _imeComposing = false;
-
-    private void MessageInput_TextChanged(object sender, TextChangedEventArgs e)
+    private void MessageInput_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        RefreshComposer();
+        _imeComposing = false;
+        _panels.SetComposing(false);
     }
 
-    private void NewMessagesButton_Click(object sender, RoutedEventArgs e) => ScrollToLatest();
-
-    private ChatMessage[] Answers() => _messages.Where(item => item.Message.Role == "assistant")
-        .Select(item => item.Message).ToArray();
+    private void RefreshHistory() =>
+        _panels.UpdateHistory(_messages.Select(item => item.Message).ToArray(), _preferences.UnreadIds);
 
     private void ObserveReplies(bool firstCompleteRead)
     {
         var priorUnread = new HashSet<string>(_preferences.UnreadIds, StringComparer.Ordinal);
         var changed = _preferences.Observe(_messages.Select(item => item.Message).ToArray(), _cursor);
+        var newUnread = _preferences.UnreadIds.Any(id => !priorUnread.Contains(id));
+        RefreshHistory();
         if (changed)
             SavePreferences();
-        var newUnread = _preferences.UnreadIds.Any(id => !priorUnread.Contains(id));
-        if ((firstCompleteRead || newUnread) && !_panels.Wants(_panels.Bubble))
+
+        // Explicit dismissal suppresses status and existing unread notifications.
+        // Only a genuinely new reply is allowed to reopen the conversation.
+        if ((newUnread || (firstCompleteRead && !_compactSuppressed)) && !_panels.ConversationOpen)
         {
-            var firstUnread = Answers().FirstOrDefault(m => _preferences.UnreadIds.Contains(m.Id));
-            if (firstUnread is not null)
-                ShowReply(firstUnread.Id);
+            var answer = _messages.Select(item => item.Message).FirstOrDefault(message =>
+                message.Role == "assistant" && _preferences.UnreadIds.Contains(message.Id)
+                && (!newUnread || !priorUnread.Contains(message.Id)));
+            if (answer is not null)
+            {
+                _compactSuppressed = false;
+                _panels.Open(answer.Id, false, false);
+            }
         }
-        RefreshReply();
-    }
-
-    private void ShowReply(string id)
-    {
-        _replyId = id;
-        RefreshReply();
-        _panels.SetVisible(_panels.Bubble, true);
         RefreshStatus();
-    }
-
-    private void MoveReply(int offset)
-    {
-        var answers = Answers();
-        var index = Array.FindIndex(answers, m => m.Id == _replyId);
-        if (index < 0 || index + offset < 0 || index + offset >= answers.Length)
-            return;
-        ShowReply(answers[index + offset].Id);
     }
 
     private void OpenUnread()
     {
-        var answers = Answers();
-        var answer = answers.FirstOrDefault(m => _preferences.UnreadIds.Contains(m.Id)) ?? answers.LastOrDefault();
+        _compactSuppressed = false;
+        var messages = _messages.Select(item => item.Message);
+        var answer = messages.FirstOrDefault(message => _preferences.UnreadIds.Contains(message.Id))
+            ?? messages.LastOrDefault();
         if (answer is not null)
-        {
-            // On a narrow monitor a history panel may temporarily cover the conversation.
-            _panels.SetVisible(_panels.History, false);
-            ShowReply(answer.Id);
-        }
+            _panels.ShowMessage(answer.Id);
+        RefreshStatus();
     }
 
-    private void CloseReply()
+    private void MarkRead(string id)
     {
-        if (_replyId is string id && _preferences.UnreadIds.Remove(id))
+        if (_preferences.UnreadIds.Remove(id))
             SavePreferences();
-        _replyId = null;
-        _panels.SetVisible(_panels.Bubble, false);
-        RefreshReply();
-    }
-
-    private void RefreshReply()
-    {
-        var answers = Answers();
-        var index = Array.FindIndex(answers, m => m.Id == _replyId);
-        var answer = index < 0 ? null : answers[index];
-        if (answer is null && _panels.Wants(_panels.Bubble))
-            _panels.SetVisible(_panels.Bubble, false);
-        _panels.UpdateReply(answer is null ? null : $"羽衣ちゃん　{answer.CreatedAt.LocalDateTime:M/d HH:mm}",
-            answer?.Text, index, answers.Length, _preferences.UnreadIds.Count);
+        RefreshHistory();
         RefreshStatus();
     }
 
@@ -499,42 +463,37 @@ public partial class MainWindow : Window
     {
         if (!_initialized || _closing)
             return;
+        if (_compactSuppressed)
+        {
+            _panels.SetVisible(_panels.Status, false);
+            return;
+        }
+
         var warnings = new[] { _assetWarning, _preferencesWarning,
-            !_panels.Composer.IsVisible ? SendFeedbackText.Text : null };
+            SendFeedbackText.Text };
         var details = string.Join(Environment.NewLine, warnings.Where(s => !string.IsNullOrWhiteSpace(s)));
         _panels.StatusDetail.Text = details;
         _panels.StatusDetail.Visibility = details.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         _panels.OpenInputButton.Visibility = !string.IsNullOrWhiteSpace(SendFeedbackText.Text)
-            && !_panels.Composer.IsVisible ? Visibility.Visible : Visibility.Collapsed;
+            && !_panels.ComposerOpen ? Visibility.Visible : Visibility.Collapsed;
         var unread = _preferences.UnreadIds.Count;
         _panels.UnreadButton.Content = $"新着 {unread}";
         _panels.UnreadButton.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
         var waiting = _status is { } status && (status.QueuedCount > 0 || status.AwaitingReplyCount > 0);
         var shouldShow = _connectionProblem || _status is { Subscribed: false } || waiting || _sending
             || _preferencesSaveBlocked || details.Length != 0 || !string.IsNullOrEmpty(ConnectionErrorText.Text)
-            || (unread > 0 && !_panels.Bubble.IsVisible);
+            || (unread > 0 && !_panels.ConversationOpen);
         if (_sending && string.IsNullOrEmpty(QueueText.Text))
             QueueText.Text = "送信受付を確認中…";
         else if (!_sending && QueueText.Text == "送信受付を確認中…")
             QueueText.Text = "";
         _panels.SetVisible(_panels.Status, shouldShow);
         if (shouldShow)
-            _panels.Arrange();
+            _panels.RequestArrange();
     }
 
     private sealed class MessageDisplay(ChatMessage message)
     {
         public ChatMessage Message { get; } = message;
-        public string Text => Message.Text;
-        public string Heading => $"{RoleName}　{Message.CreatedAt.LocalDateTime:M/d HH:mm}";
-        private string RoleName => Message.Role switch
-        {
-            "assistant" => "羽衣ちゃん",
-            "user" => "あなた",
-            _ => "お知らせ"
-        };
-        public Brush Background { get; } = new SolidColorBrush(message.Role == "assistant"
-            ? Color.FromRgb(34, 43, 55)
-            : Color.FromRgb(39, 58, 65));
     }
 }

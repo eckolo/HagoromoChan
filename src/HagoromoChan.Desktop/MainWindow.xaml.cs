@@ -35,7 +35,8 @@ public partial class MainWindow : Window
     private readonly DesktopPreferencesStore _preferencesStore;
     private readonly DesktopPreferences _preferences;
     private readonly DesktopPanels _panels;
-    private readonly double _assetRatio;
+    private readonly int _assetPixelWidth;
+    private readonly int _assetPixelHeight;
     private readonly string? _assetWarning;
     private string? _preferencesWarning;
     private bool _preferencesSaveBlocked;
@@ -52,20 +53,16 @@ public partial class MainWindow : Window
     private ScreenRect? _lastArea;
     private double _lastScale;
     private ContextMenu? _contextMenu;
-    private string? _replyId;
+    private bool _compactSuppressed;
+    private bool _suppressHoverUntilLeave;
     private RelayStatus? _status;
     private bool _connectionProblem;
-    private bool _historyOpened;
 
     // Keep the existing message acceptance, pagination and retry logic independent of
     // the actual surface containing its controls.
     private TextBox MessageInput => _panels.MessageInput;
     private Button SendButton => _panels.SendButton;
     private TextBlock SendFeedbackText => _panels.SendFeedbackText;
-    private ItemsControl HistoryItems => _panels.HistoryItems;
-    private ScrollViewer HistoryScroll => _panels.HistoryScroll;
-    private TextBlock EmptyHistoryText => _panels.EmptyHistoryText;
-    private Button NewMessagesButton => _panels.NewMessagesButton;
     private TextBlock ConnectionText => _panels.ConnectionText;
     private Ellipse ConnectionIndicator => _panels.ConnectionIndicator;
     private TextBlock QueueText => _panels.QueueText;
@@ -93,28 +90,27 @@ public partial class MainWindow : Window
         var artwork = MascotArtwork.Load(dataDirectory, out var assetWarning);
         _assetWarning = assetWarning;
         MascotImage.Source = artwork;
-        _assetRatio = (double)artwork.PixelWidth / artwork.PixelHeight;
-        Height = _preferences.Height;
-        Width = Height * _assetRatio;
+        _assetPixelWidth = artwork.PixelWidth;
+        _assetPixelHeight = artwork.PixelHeight;
+        Height = Math.Min(_preferences.Height, _assetPixelHeight);
+        Width = Height * _assetPixelWidth / _assetPixelHeight;
         Topmost = _preferences.Topmost;
 
-        _panels = new DesktopPanels(this, (DataTemplate)FindResource("HistoryMessageTemplate"),
-            OpenComposer, OpenHistory, OpenSettings, CloseReply, () => MoveReply(-1),
-            () => MoveReply(1), OpenUnread);
-        HistoryItems.ItemsSource = _messages;
+        _panels = new DesktopPanels(this, OpenComposer, OpenHistory, OpenSettings,
+            DismissSurfaces, OpenUnread, MarkRead);
         MessageInput.PreviewKeyDown += MessageInput_PreviewKeyDown;
-        MessageInput.TextChanged += MessageInput_TextChanged;
+        _panels.DraftChanged += RefreshComposer;
         MessageInput.LostKeyboardFocus += MessageInput_LostKeyboardFocus;
         SendButton.Click += SendButton_Click;
         RelayRetryButton.Click += RelayRetryButton_Click;
-        NewMessagesButton.Click += NewMessagesButton_Click;
         _panels.VisibilityChanged += RefreshStatus;
         WireDesktopEvents();
 
-        TextCompositionManager.AddPreviewTextInputStartHandler(MessageInput, (_, _) => _imeComposing = true);
-        TextCompositionManager.AddPreviewTextInputUpdateHandler(MessageInput, (_, _) => _imeComposing = true);
+        TextCompositionManager.AddPreviewTextInputStartHandler(MessageInput, (_, _) => BeginComposition());
+        TextCompositionManager.AddPreviewTextInputUpdateHandler(MessageInput, (_, _) => BeginComposition());
         TextCompositionManager.AddPreviewTextInputHandler(MessageInput, (_, _) => EndComposition());
         Loaded += MainWindow_Loaded;
+        DpiChanged += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(CheckPlacement));
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)

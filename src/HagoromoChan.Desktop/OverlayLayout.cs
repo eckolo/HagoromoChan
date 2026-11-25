@@ -60,4 +60,57 @@ internal static class OverlayLayout
         };
         return new OverlayPlacement(Clamp(area, rect), side);
     }
+
+    // Fixed work-area zone for the conversation. Its bottom edge and horizontal
+    // origin do not depend on message text, page count, or composer height.
+    public static OverlayPlacement ConversationZone(ScreenRect area, ScreenRect anchor, double scale)
+    {
+        int Px(double dip) => Math.Max(1, (int)Math.Floor(dip * scale));
+        var margin = Px(10);
+        var gap = Px(8);
+        var left = anchor.X - area.X - gap - margin;
+        var right = area.Right - anchor.Right - gap - margin;
+        var above = anchor.Y - area.Y - gap - margin;
+        var below = area.Bottom - anchor.Bottom - gap - margin;
+        var desired = Px(620);
+        var minimum = Px(300);
+        if (Math.Max(left, right) >= minimum)
+        {
+            var useLeft = left >= right;
+            var width = Math.Min(desired, useLeft ? left : right);
+            return new OverlayPlacement(Clamp(area, new ScreenRect(
+                useLeft ? anchor.X - gap - width : anchor.Right + gap,
+                area.Y + margin, width, Math.Max(1, area.Height - 2 * margin))),
+                useLeft ? OverlaySide.Left : OverlaySide.Right);
+        }
+        if (Math.Max(above, below) >= Px(240))
+        {
+            var useAbove = above >= below;
+            var width = Math.Min(desired, Math.Max(1, area.Width - 2 * margin));
+            var height = useAbove ? above : below;
+            return new OverlayPlacement(Clamp(area, new ScreenRect(
+                anchor.X + (anchor.Width - width) / 2,
+                useAbove ? anchor.Y - gap - height : anchor.Bottom + gap, width, height)),
+                useAbove ? OverlaySide.Above : OverlaySide.Below);
+        }
+
+        // Extremely small work areas cannot hold all surfaces without overlap. Keep
+        // the controls on-screen; the fixed navigation still allows dismissal.
+        var fallbackWidth = Math.Min(desired, Math.Max(1, area.Width - 2 * margin));
+        return new OverlayPlacement(Clamp(area, new ScreenRect(area.X + margin, area.Y + margin,
+            fallbackWidth, Math.Max(1, area.Height - 2 * margin))),
+            left >= right ? OverlaySide.Left : OverlaySide.Right);
+    }
+
+    public static (int Width, int Height) MascotPixels(int imageWidth, int imageHeight,
+        int requestedHeightDip, double scale, ScreenRect area)
+    {
+        var ratio = (double)imageWidth / imageHeight;
+        var margin = (int)Math.Ceiling(16 * scale);
+        var height = (int)Math.Floor(Math.Min(Math.Min(imageHeight, requestedHeightDip * scale),
+            Math.Min(Math.Max(1, area.Height - margin), Math.Max(1, area.Width - margin) / ratio)));
+        height = Math.Clamp(height, 1, imageHeight);
+        var width = Math.Clamp((int)Math.Floor(height * ratio), 1, imageWidth);
+        return (width, height);
+    }
 }

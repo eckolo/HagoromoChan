@@ -6,5 +6,6 @@
     <ProjectReference Include="../../src/HagoromoChan.Relay/HagoromoChan.Relay.csproj" />
     <Compile Include="../../src/HagoromoChan.Desktop/OverlayLayout.cs" Link="Desktop/OverlayLayout.cs" />
     <Compile Include="../../src/HagoromoChan.Desktop/DesktopPreferences.cs" Link="Desktop/DesktopPreferences.cs" />
+    <Compile Include="../../src/HagoromoChan.Desktop/TextPaging.cs" Link="Desktop/TextPaging.cs" />
   </ItemGroup>
 </Project>

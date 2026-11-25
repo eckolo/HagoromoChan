@@ -11,7 +11,8 @@ internal sealed class DesktopPreferences
 
     public int? ScreenX { get; set; }
     public int? ScreenY { get; set; }
-    public int Height { get; set; } = 180;
+    public int Height { get; set; } = 260;
+    public int LayoutVersion { get; set; }
     public bool Topmost { get; set; } = true;
     public long? ObservedSequence { get; set; }
     public string? ObservedId { get; set; }
@@ -58,10 +59,14 @@ internal sealed class DesktopPreferencesStore(string directory)
     public DesktopPreferences Load()
     {
         if (!File.Exists(_path))
-            return new DesktopPreferences();
+            return new DesktopPreferences { LayoutVersion = 2 };
         var value = JsonSerializer.Deserialize<DesktopPreferences>(File.ReadAllText(_path), Options)
             ?? throw new InvalidDataException("表示設定が空です。");
-        value.Height = value.Height is 120 or 180 or 260 ? value.Height : 180;
+        // In v1, 180 was the standard size. In v2, 260 is the standard.
+        if (value.LayoutVersion < 2 && value.Height == 180)
+            value.Height = 260;
+        value.Height = value.Height is 120 or 180 or 260 ? value.Height : 260;
+        value.LayoutVersion = 2;
         value.UnreadIds ??= new HashSet<string>(StringComparer.Ordinal);
         if (value.ObservedSequence is < 0)
             throw new InvalidDataException("通知基準が不正です。");

@@ -1,29 +1,12 @@
 <Window x:Class="HagoromoChan.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="羽衣ちゃん" Width="123" Height="180"
+        Title="羽衣ちゃん" Width="177" Height="260"
         WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
         Background="Transparent" ShowInTaskbar="False" ShowActivated="False"
         WindowStartupLocation="Manual" Topmost="True" UseLayoutRounding="True"
         FontFamily="Yu Gothic UI, Meiryo" FontSize="14">
-    <Window.Resources>
-        <DataTemplate x:Key="HistoryMessageTemplate">
-                            <Border Background="{Binding Background}" CornerRadius="9" Padding="12"
-                                    Margin="0,0,0,10">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Heading}" FontSize="12"
-                                               Foreground="{StaticResource MutedForeground}" Margin="0,0,0,7" />
-                                    <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" IsTabStop="False"
-                                             AcceptsReturn="True" TextWrapping="Wrap"
-                                             BorderThickness="0" Padding="0" Background="Transparent"
-                                             Foreground="{StaticResource MainForeground}"
-                                             VerticalScrollBarVisibility="Disabled"
-                                             HorizontalScrollBarVisibility="Disabled" />
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-    </Window.Resources>
-    <Image x:Name="MascotImage" Stretch="Fill" Cursor="Hand"
+    <Image x:Name="MascotImage" Stretch="Uniform" StretchDirection="DownOnly" Cursor="Hand"
            AutomationProperties.Name="羽衣ちゃん。クリックで会話、ドラッグで移動、右クリックで設定"
            RenderOptions.BitmapScalingMode="HighQuality" />
 </Window>
