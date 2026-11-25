@@ -2,6 +2,10 @@
 
 Windowsの小窓から、既存のChatGPT Dot「羽衣ちゃん」にメッセージを届けるための初期実装です。入力欄と履歴はWPFで描画します。接続には公開されているMCP Eventsと、Dotが呼ぶ返信用MCPツールを使います。
 
+## 開発・進捗管理
+
+開発時の共通ルールは [AGENTS.md](AGENTS.md)、マイルストーンの定義と進捗は [ROADMAP](docs/ROADMAP.md)・[PROGRESS](docs/PROGRESS.md) を参照してください。ブランチ・検証・統合の手順は [開発運用手順](docs/operations/development-workflow.md) にあります。
+
 ## 動く範囲
 
 - 日本語の会話画面、Enterで改行、Ctrl+Enterで送信、最前面表示の切り替え。
