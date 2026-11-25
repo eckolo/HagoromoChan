@@ -14,7 +14,7 @@ Windowsの小窓から、既存のChatGPT Dot「羽衣ちゃん」にメッセ�
 - MCPのツール検出、イベント購読、署名付きコールバック検証とイベント配信。
 - OpenAI公式のSecure MCP Tunnelから接続するための標準入出力アダプター。
 
-画面はテキスト会話の最小構成です。キャラクター画像、トレイ常駐、新着時の自動ポップアップ、他のChat／Workへの切り替えは今後の拡張対象です。
+M03 v2.3では透過キャラクターの常駐表示、クリック・右クリックによる会話操作、統一吹き出し、固定上下操作、独立トグル、ページ分割、位置／サイズ設定を実装しています。ホバー操作窓は廃止し、状態表示は本体近傍に配置します。ユーザーのデザイン受入・完了指示を反映した版で、最終版の残検査は [M03 実機確認手順](docs/operations/M03-verification.md) を参照してください。通信障害復旧・自動起動等は別マイルストーンです。
 
 実際の羽衣ちゃんへの接続には、利用アカウントでのカスタムMCP／イベント／書き込みツールの利用権限と、Secure MCP Tunnelの設定が必要です。イベント受領から返事までの時間、公式のDot会話での表示、書き込み時の承認動作は実アカウントで確認します。
 
@@ -34,7 +34,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start.ps1
 
 [Windows PowerShellの実行ポリシー](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 
-スクリプトはReleaseでビルドし、中継と会話画面を起動します。中継が同じポートですでに稼働していれば再利用します。会話画面は閉じると終了します。中継は別のコンソールで動き続け、そのウィンドウでCtrl+Cを押すと終了します。
+スクリプトはReleaseでビルドし、中継と会話画面を起動します。中継が同じポートですでに稼働していれば再利用します。羽衣ちゃん本体の右クリックメニューの「終了」でDesktopが終了します。吹き出し・入力・履歴を閉じても受信は継続します。中継は別のコンソールで動き続け、そのウィンドウでCtrl+Cを押すと終了します。起動スクリプトはDPI対応マニフェスト付きのDesktop.exeを起動します。
 
 Visual Studio等で個別に起動する場合は、先にRelay、次にDesktopを起動します。
 

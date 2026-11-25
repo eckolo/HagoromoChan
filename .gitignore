@@ -18,3 +18,7 @@ pending-message.json
 pending-message.json.tmp
 relay.lock
 desktop.lock
+
+# M03 local display preferences and unread checkpoints
+desktop-ui.json
+desktop-ui.json.tmp
