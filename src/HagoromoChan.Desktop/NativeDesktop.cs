@@ -36,12 +36,11 @@ internal static class NativeDesktop
         return rect.ToScreenRect();
     }
 
-    public static (int X, int Y) Cursor()
-    {
-        if (!GetCursorPos(out var point))
-            throw new InvalidOperationException("マウス位置を取得できません。");
-        return (point.X, point.Y);
-    }
+    public static (int X, int Y)? TryCursor() =>
+        GetCursorPos(out var point) ? (point.X, point.Y) : null;
+
+    public static (int X, int Y) Cursor() =>
+        TryCursor() ?? throw new InvalidOperationException("マウス位置を取得できません。");
 
     public static ScreenRect WorkArea(Window window) =>
         WorkArea(MonitorFromWindow(Handle(window), NearestMonitor));

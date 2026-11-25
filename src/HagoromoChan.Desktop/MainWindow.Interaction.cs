@@ -19,8 +19,7 @@ public partial class MainWindow : Window
     private void WireDesktopEvents()
     {
         _placementTimer.Tick += (_, _) => CheckPlacement();
-        MascotSurface.MouseEnter += (_, _) => _hoverSince = Environment.TickCount64;
-        MascotSurface.MouseLeave += (_, _) => _hoverSince = null;
+        WirePanelCursorGaze();
         MascotSurface.PreviewMouseLeftButtonDown += BeginPointer;
         MascotSurface.PreviewMouseMove += MovePointer;
         MascotSurface.PreviewMouseLeftButtonUp += EndPointer;

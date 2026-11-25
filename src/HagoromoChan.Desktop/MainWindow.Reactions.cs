@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Threading;
 
 namespace HagoromoChan.Desktop;
@@ -12,10 +11,10 @@ public partial class MainWindow
     private readonly ReactionInbox _reactionInbox = new();
     private readonly CharacterReactionState _reactions = new();
     private readonly WindowActivityGaze _windowGaze = new();
+    private readonly CursorGaze _cursorGaze = new();
     private readonly CharacterReactionArtwork _reactionArtwork;
     private readonly DispatcherTimer _reactionTimer = new(DispatcherPriority.Background);
     private string? _reactionRequestId;
-    private long? _hoverSince;
     private bool _animationUnavailable;
     private bool _gazeSampling;
     private bool _reactionsClosed;
@@ -52,7 +51,8 @@ public partial class MainWindow
         if (!AnimationsEnabled || suspended)
         {
             _reactionTimer.Stop();
-            ResetGaze();
+            ResetWindowGaze();
+            _cursorGaze.Reset();
             // With a custom pack its resting frame also owns the baseline size/pose.
             if (AnimationsEnabled)
                 RenderReactions(this, EventArgs.Empty);
@@ -65,11 +65,17 @@ public partial class MainWindow
             _reactionTimer.Start();
     }
 
-    private void ResetGaze()
+    private void ResetWindowGaze()
     {
         if (!_gazeSampling) return;
         _windowGaze.Reset();
         _gazeSampling = false;
+    }
+
+    private void ObservePanelCursorActivity()
+    {
+        if (_reactionTimer.IsEnabled)
+            _cursorGaze.NotePanelInteraction(Environment.TickCount64);
     }
 
     private void NotifyLocalAcceptance()
@@ -96,7 +102,7 @@ public partial class MainWindow
                 target = _windowGaze.Sample(bounds);
             }
             else
-                ResetGaze();
+                ResetWindowGaze();
 
             if (_reactions.WaitingForReply)
             {
@@ -114,18 +120,14 @@ public partial class MainWindow
                 ReactionPose.Look => "waiting",
                 _ => "frozen"
             };
-            if (frame.Pose == ReactionPose.Idle && !_reactions.WaitingForReply)
+            // Cursor attention can replace a resting/waiting gaze, never a one-shot or a frozen pose.
+            if (frame.Pose is ReactionPose.Idle or ReactionPose.Look && _lastBounds is { } mascot)
             {
-                if (_hoverSince is long since && now - since >= 300 && MascotSurface.IsMouseOver)
-                {
-                    var at = Mouse.GetPosition(MascotSurface);
-                    var dx = at.X - MascotSurface.ActualWidth * .5;
-                    var dy = at.Y - MascotSurface.ActualHeight * .25;
-                    var distance = Math.Max(1, double.Hypot(dx, dy));
-                    direction = (dx / distance, dy / distance);
-                    action = "look";
-                }
-                else if (target is { } active)
+                var cursor = NativeDesktop.TryCursor();
+                var gaze = cursor is { } at ? _cursorGaze.Sample(mascot, _lastScale, at.X, at.Y, now) : null;
+                if (gaze is null && !_reactions.WaitingForReply)
+                    gaze = target;
+                if (gaze is { } active)
                 {
                     direction = active;
                     action = "look";
@@ -146,7 +148,8 @@ public partial class MainWindow
             _animationUnavailable = true;
             _reactionTimer.Stop();
             _reactions.SetEnabled(false, Environment.TickCount64);
-            ResetGaze();
+            ResetWindowGaze();
+            _cursorGaze.Reset();
             MascotImage.Source = RestingSilhouette.Source;
         }
     }
@@ -158,7 +161,8 @@ public partial class MainWindow
         _reactionTimer.Stop();
         _reactionTimer.Tick -= RenderReactions;
         SystemParameters.StaticPropertyChanged -= ReactionSystemSettingChanged;
-        ResetGaze();
+        ResetWindowGaze();
+        _cursorGaze.Reset();
         _reactions.Stop();
     }
 }
