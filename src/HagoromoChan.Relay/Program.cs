@@ -8,6 +8,9 @@ using HagoromoChan.Relay;
 var settings = new RelaySettings();
 if (args.Contains("--mcp-stdio", StringComparer.Ordinal))
 {
+    // The tunnel runtime key is not needed by the stdio adapter.
+    Environment.SetEnvironmentVariable("CONTROL_PLANE_API_KEY", null);
+    Environment.SetEnvironmentVariable("OPENAI_API_KEY", null);
     await StdioProxy.RunAsync(settings);
     return;
 }
@@ -43,7 +46,8 @@ builder.WebHost.ConfigureKestrel(server =>
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
-builder.Services.AddSingleton(new ChatStore(settings.DatabasePath, RelaySettings.ChannelId));
+using var store = new ChatStore(settings.DatabasePath, RelaySettings.ChannelId);
+builder.Services.AddSingleton(store);
 builder.Services.AddSingleton<WebhookClient>();
 builder.Services.AddSingleton<McpHandler>();
 builder.Services.AddHostedService<EventDispatcher>();
@@ -94,7 +98,8 @@ app.Use(async (context, next) =>
     }
 });
 
-app.MapGet("/health", () => Results.Json(new { service = "HagoromoChan", status = "ok" }));
+var managedSession = Environment.GetEnvironmentVariable(RuntimeControl.SessionVariable);
+app.MapGet("/health", () => Results.Json(new { service = "HagoromoChan", status = "ok", managedSession }));
 app.MapGet("/api/status", (ChatStore store) => store.GetStatus());
 app.MapGet("/api/messages", (long? after, int? limit, ChatStore store) =>
     store.ReadMessages(after ?? 0, limit ?? 100));
@@ -133,4 +138,7 @@ app.MapPost("/mcp", async (HttpRequest request, McpHandler handler, Cancellation
     }
 });
 
+// Standalone Linux/Windows debug runs retain their existing console shutdown.
+using var managedStop = OperatingSystem.IsWindows()
+    ? RuntimeControl.WatchStop(app.Lifetime.StopApplication) : null;
 await app.RunAsync();

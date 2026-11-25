@@ -171,6 +171,7 @@ public partial class MainWindow : Window
         if (!_initialized || _closing)
             return;
         _compactSuppressed = true;
+        _expandedStatus = false;
         if (_contextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
         _panels.HideSurfaces();
@@ -266,6 +267,9 @@ public partial class MainWindow : Window
             RememberPosition();
         }));
         menu.Items.Add(new Separator());
+        menu.Items.Add(ToggleMenuCommand("接続状態", _expandedStatus, ToggleConnectionDetails));
+        if (!string.IsNullOrEmpty(_managerPipe))
+            menu.Items.Add(MenuCommand("再起動", () => RequestManagedControl(RuntimeCommand.Restart)));
         menu.Items.Add(MenuCommand("終了", RequestExit));
         menu.Closed += (_, _) =>
         {

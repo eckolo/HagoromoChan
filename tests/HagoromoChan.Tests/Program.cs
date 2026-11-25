@@ -29,7 +29,10 @@ var tests = new (string Name, Action Run)[]
     ("Display preference migration makes the former large size standard", ConversationUiChecks.PreferencesMigration),
     ("Input and conversation history toggle independently", ConversationUiChecks.IndependentVisibility),
     ("History navigation retains surviving cards", ConversationUiChecks.RetainedHistoryCards),
-    ("Auxiliary surfaces remain adjacent to the mascot", ConversationUiChecks.NearbyAuxiliaryWindows)
+    ("Auxiliary surfaces remain adjacent to the mascot", ConversationUiChecks.NearbyAuxiliaryWindows),
+    ("Runtime snapshots are scoped to the current session and time", RuntimeControlChecks.SnapshotIdentity),
+    ("Current-user runtime control pipe transmits bounded commands and acknowledgements", RuntimeControlChecks.PipeCommands),
+    ("Windows argument quoting handles spaces, Japanese paths, quotes and trailing separators", RuntimeControlChecks.WindowsArgumentQuoting)
 };
 
 var failures = 0;

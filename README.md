@@ -18,39 +18,29 @@ M03 v2.3では透過キャラクターの常駐表示、クリック・右クリ
 
 実際の羽衣ちゃんへの接続には、利用アカウントでのカスタムMCP／イベント／書き込みツールの利用権限と、Secure MCP Tunnelの設定が必要です。イベント受領から返事までの時間、公式のDot会話での表示、書き込み時の承認動作は実アカウントで確認します。
 
-## Windowsで起動する
+## Windowsで起動する（M08候補）
 
-Windows 11と.NET 10 SDKを使用します。依存パッケージの初回取得にはNuGetへの接続が必要です。
+Windows 11、.NET 10 SDK（開発用）、.NET 10 Desktop/ASP.NET Coreランタイム、既存の公式tunnel-client 0.0.21とhagoromoプロファイルを使用します。初回は旧手動トンネル、Desktop、Relayを正常終了してください。会話データや購読の削除は不要です。
 
-```powershell
-git clone git@github.com:eckolo/HagoromoChan.git
-cd HagoromoChan
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start.ps1
-```
+初回の設定・ビルド配置（既存プロファイルとruntimeキーを使用）:
 
-`-ExecutionPolicy Bypass` は、このコマンドで起動するPowerShellとその子プロセスに適用する実行ポリシーです。確認済みの起動スクリプトを実行するために指定しています。この指定はプロセスの終了まで有効です。
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure.ps1
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
 
-「このシステムではスクリプトの実行が無効になっている」と表示された場合は、上記の `-ExecutionPolicy Bypass` を含むコマンドで起動してください。同じエラーが続く場合は `powershell -NoProfile -Command "Get-ExecutionPolicy -List"` で実行ポリシーを確認します。`MachinePolicy` または `UserPolicy` に設定がある環境では、そのグループポリシーが優先されます。
+通常起動は %LOCALAPPDATA%\HagoromoChan\app\HagoromoChan.exe の起動だけです。Start.ps1 は同じexeを起動し、ビルドしません。右クリック「終了」「再起動」は管理下の全プロセスを対象とし、「接続状態」は既存状態窓を拡張します。スタートアップは Startup.ps1 -Action Enable で明示登録し、Disable で解除します。ソース更新はgit pull --ff-only等で行った後に Update.ps1 を実行します。開発用の個別再起動や確認は Control.ps1 を使用します。
 
-[Windows PowerShellの実行ポリシー](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
+詳しい移行・更新・テスト手順は [M08実機確認手順](docs/operations/M08-verification.md) を参照してください。v1.0は実装候補で、Windowsでのビルド・動作確認が必要です。
 
-スクリプトはReleaseでビルドし、中継と会話画面を起動します。中継が同じポートですでに稼働していれば再利用します。羽衣ちゃん本体の右クリックメニューの「終了」でDesktopが終了します。吹き出し・入力・履歴を閉じても受信は継続します。中継は別のコンソールで動き続け、そのウィンドウでCtrl+Cを押すと終了します。起動スクリプトはDPI対応マニフェスト付きのDesktop.exeを起動します。
+個別開発起動では、従来どおり先にRelay、別ターミナルでDesktopを実行できます（管理起動と同時には実行しない）。
 
-Visual Studio等で個別に起動する場合は、先にRelay、次にDesktopを起動します。
-
-```powershell
-dotnet run --project .\src\HagoromoChan.Relay
-# 別のターミナルで実行
-dotnet run --project .\src\HagoromoChan.Desktop
-```
-
-初回は「購読待ち」と表示されます。送信するとSQLiteに保存され、羽衣ちゃんの購読が成立してから配信されます。送った内容は、その後接続するDotに届くので、試験では短い無害な文章を使ってください。
+    dotnet run --project .\src\HagoromoChan.Relay
+    dotnet run --project .\src\HagoromoChan.Desktop
 
 ## 羽衣ちゃんを接続する
 
 ### 1. ローカル中継を起動する
 
-上記の方法でRelayを起動します。Relayは `127.0.0.1:48732` で待ち受けます。以下で最小の稼働確認ができます。
+管理起動ではLauncherがRelayを起動します。以下は初回のプロファイル準備や個別開発時の手順で、管理起動中には手動のトンネルを重複起動しません。Relayは `127.0.0.1:48732` で待ち受けます。以下で最小の稼働確認ができます。
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:48732/health
@@ -72,7 +62,7 @@ $mcpCommand = '"' + $dotnetPath + '" "' + $relayDll + '" --mcp-stdio'
 
 tunnel-client init --sample sample_mcp_stdio_local --profile hagoromo --tunnel-id YOUR_TUNNEL_ID --mcp-command $mcpCommand
 tunnel-client doctor --profile hagoromo --explain
-tunnel-client run --profile hagoromo
+tunnel-client run --profile hagoromo --mcp.stdio-send-initialized-notification=true
 ```
 
 トンネルは `--mcp-stdio` のプロセスを起動します。このプロセスは、起動済みのローカルRelayへMCP要求を中継します。会話画面からの送信、購読情報、返事はすべて同じRelayで扱われます。
@@ -103,6 +93,9 @@ ChatGPTのプラグイン画面でカスタムMCPサーバーを追加し、接�
 | `relay.token` | ローカル接続キー。初回起動で自動生成 |
 | `pending-message.json` | 受付結果が未確認の発言。送信前に保存し、受理を確認してから消去 |
 | `relay.lock`、`desktop.lock` | 同じ保存先を使うプロセスの重複起動を防ぐためのロック |
+| `launcher.lock`、`deployment.lock` | 管理起動・更新の競合防止 |
+| `launcher.json` | トンネルの設定と同一WindowsユーザーのDPAPIで暗号化したruntimeキー（共有・Git登録しない） |
+| `app/`、`logs/` | 配置済みアプリと管理ログ。既存DB・購読と分離 |
 
 検証用に保存先を変更する場合は、Relay、Desktop、トンネルの起動元すべてで `HAGOROMO_DATA_DIR` に同じ絶対パスを指定します。データやキーはリポジトリに含めません。
 
@@ -121,7 +114,8 @@ dotnet run --project .\tests\HagoromoChan.Tests --configuration Release
 
 | プロジェクト | 役割 |
 | --- | --- |
-| `HagoromoChan.Contracts` | 自作UIと中継の間のメッセージ形式 |
+| `HagoromoChan.Contracts` | 自作UIと中継の間のメッセージ形式・管理制御 |
+| `HagoromoChan.Launcher` | 管理起動・停止・再起動・状態管理（Windows） |
 | `HagoromoChan.Desktop` | WPFの入力と表示、受理確認、履歴取得 |
 | `HagoromoChan.Relay` | SQLite、MCP、署名付きイベント、再送処理 |
 | `HagoromoChan.Tests` | 永続化、重複、配信状態、MCPの回帰検証 |

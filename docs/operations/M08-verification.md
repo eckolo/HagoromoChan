@@ -1,0 +1,68 @@
+# M08 v1.0 Windows実機確認手順
+
+対象: [M08](../milestones/M08.md) / [設計](../design/M08-runtime-management.md)。候補版の検査であり成功記録ではない。
+
+## 1. 初回移行
+
+現在の手動トンネルを起動したコンソールでCtrl+C、stdio子プロセスの終了を確認してからDesktop・Relayを正常終了する。RelayのコンソールはCtrl+C。残存があればPID・実行コマンドラインを照合する。無関係なdotnet.exeを一括終了しない。DB、購読、トークン、プロファイルを削除しない。通常データディレクトリを使用する。
+
+リポジトリルートで、ローカルの未コミット変更を保護したうえで実行:
+
+    git status --short
+    git fetch origin
+    git switch --track origin/milestone/M08-startup
+
+既にローカル枝があれば git switch milestone/M08-startup と git pull --ff-only を利用する。
+
+初回のみ、Windows PowerShellで既存のtunnel-client 0.0.21とhagoromoプロファイルを設定。runtimeキー（adminキーではない）を対話式に入力する。値はログ・チャットに貼らない。
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure.ps1
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
+
+既定プロファイルが存在しなければ -ProfileFile に正しいファイルの絶対パスを渡す。PATHにtunnel-clientがなければ -TunnelExecutable を明示する。既に設定したキーを維持してログレベルや実行ファイルの指定を変更する場合は、管理アプリ終了後に Configure.ps1 -ReuseKey を実行する。
+
+Update.ps1 は新規候補をビルドしてから配置し起動する。旧手動起動が残る場合は配置を拒否する。旧出力の上書き・強制停止は行わない。ビルド失敗時はエラーを返し、既存配置を維持する。
+
+## 2. 日常操作・更新
+
+- エクスプローラーで %LOCALAPPDATA%\HagoromoChan\app\HagoromoChan.exe を起動するだけで通常起動。Start.ps1 も同じexeを起動し、ビルドしない。
+- 右クリック「再起動」「終了」は管理アプリ全体の再起動・終了。「接続状態」は既存窓を展開・縮小。
+- PowerShellから開発用に Control.ps1 -Action Status / Stop / Restart / RestartDesktop / RestartTunnel を使用できる。Restart系の応答は受付であり終了・起動の完了ではない。Statusで確認する。
+- ソース更新後は Update.ps1。Desktopのみを変更した場合は Update.ps1 -Target Desktop（共有入力変更時は全体ビルド）。配置切替時は全体を停止する。Build.ps1だけなら候補を作るのみ。Update.ps1 -StageDirectory に候補のパスを渡してビルドなしで配置可能。
+- 古いapp-previous-*は退避用。削除は旧配置が不要と確認した後にユーザーが行う。DB・設定のある親フォルダーを削除しない。
+
+スタートアップ登録は通常操作が成功した後に明示実行する（今回は未登録）:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Startup.ps1 -Action Enable
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Startup.ps1 -Action Status
+
+解除は -Action Disable。Windowsの「スタートアップ アプリ」で登録・有効状態も確認する。GUI右クリックメニューに登録項目はない。ログオン検査は利用者の都合のよい時点で実施する。
+
+## 3. 検証項目
+
+| ID | 操作 | 期待 |
+| --- | --- | --- |
+| M08-W01 | 初回配置・通常起動 | Launcher、Relay、Tunnel、stdio、Desktopの正しい関係・PID、ビルドなしの通常起動、Relay準備後にTunnel/GUI開始。 |
+| M08-W02 | exeを二重起動 | 既存アプリを維持。DBロック、ポート、トンネル重複なし。 |
+| M08-W03 | GUIの終了 | Desktop→Tunnel/stdio→Relay→Launcherの順で停止。logs/launcher.logで正常停止／Job強制終了の区別。タスクマネージャで対象PID消失、ロック解放、再起動可能。 |
+| M08-W04 | GUI再起動・複数回反復 | 旧PIDが終了した後で新しい子PIDが開始。同じ管理プロセス、DB・購読・設定を維持。 |
+| M08-W05 | Control.ps1 -Action RestartDesktop | Desktop PIDのみ変更。Relay・Tunnelは同じPID。ビルドなし。 |
+| M08-W06 | Control.ps1 -Action RestartTunnel | 旧Tunnelとstdioが消えた後に新規Tunnel起動。Relay・Desktop維持。初期化通知補完設定が有効。 |
+| M08-W07 | 接続状態トグル | 健康状態でも右クリックで詳細表示。⌄/⌃で同じ状態窓を展開・縮小。PID、Relay/Tunnel状態、ローカル購読とクラウド未確認の区別。 |
+| M08-W08 | ソース更新・ビルド | 稼働中にBuild.ps1、旧DLLロックに阻害されない。Update.ps1で安全に切替。失敗時は旧版とデータ維持。Desktop-onlyの共有入力チェックも確認。 |
+| M08-W09 | 意図的な異常終了（隔離データでのみ） | 管理プロセス強制終了後、Jobに属する子・stdioが残らない。別アプリは停止されない。 |
+| M08-W10 | 通信異常・未設定・子終了（隔離データ） | トンネル未準備・終了を表示、Desktop操作可能。Relay異常時にトンネルを停止。別のポート／旧プロセスを取り込まない。 |
+| M08-W11 | 既存データと会話往復 | 履歴・未読・購読・受付不明のIDを維持。購読を無条件再登録しない。既存Dotに無害なテスト発言、返信受領。 |
+| M08-W12 | スタートアップEnable・ログオン・Disable | 通常起動と同じexeで全体起動。無効時は起動なし。二重起動なし。登録先は固定。 |
+| M08-W13 | 資格情報・ログ | DPAPIの同一Windowsユーザー復号、別ユーザーでの失敗は隔離検証。秘密がGit・起動引数・ログにないこと。確認時に秘密そのものを共有しない。 |
+| M08-W14 | 停止タイムアウト（隔離データ） | 管理下Jobのみのフォールバック。停止できない場合は更新を停止し原因を表示。 |
+| M08-W15 | 空白・日本語パス | プロファイル・tunnel-client・データディレクトリのパスを含む起動。初期化、stdioツール、購読を確認。 |
+
+正常終了の検査ではPIDだけでなくJob内のstdio子プロセスも照合する。ログは logs/launcher.log、relay.log、desktop.log、tunnel.log（標準出力・エラー）、tunnel-client.log（公式クライアントログ）。状態の観測時刻を確認する。実データで故意に強制終了・障害注入を行わない。
+
+## 4. ビルド・回帰検査
+
+    dotnet build .\HagoromoChan.sln --configuration Release
+    dotnet run --project .\tests\HagoromoChan.Tests --configuration Release
+
+既存26検査に現在セッションの状態、ローカルパイプ、Windows引数引用の3検査を追加した（計29、未実行）。PowerShellスクリプトの構文・動作、WindowsのJob/DPAPI、実際のMCP、GUI・ログオンも別途確認する。結果、HEAD SHA、失敗時のエラーと機密を除いたログを返却する。M08の完了判定は実機検査後。

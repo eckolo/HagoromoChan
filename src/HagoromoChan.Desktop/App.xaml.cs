@@ -1,11 +1,13 @@
 using System.IO;
 using System.Windows;
+using HagoromoChan.Contracts;
 
 namespace HagoromoChan.Desktop;
 
 public partial class App : Application
 {
     private FileStream? _instanceLock;
+    private IDisposable? _stopRegistration;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -21,8 +23,11 @@ public partial class App : Application
             Directory.CreateDirectory(dataDirectory);
             _instanceLock = new FileStream(Path.Combine(dataDirectory, "desktop.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            MainWindow = new MainWindow(dataDirectory);
-            MainWindow.Show();
+            var window = new MainWindow(dataDirectory);
+            MainWindow = window;
+            _stopRegistration = RuntimeControl.WatchStop(() =>
+                Dispatcher.BeginInvoke(new Action(window.RequestLocalExit)));
+            window.Show();
         }
         catch (IOException error) when ((error.HResult & 0xFFFF) is 32 or 33)
         {
@@ -40,6 +45,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _stopRegistration?.Dispose();
         _instanceLock?.Dispose();
         base.OnExit(e);
     }
