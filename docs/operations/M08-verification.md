@@ -19,7 +19,7 @@
     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
 
-既定プロファイルが存在しなければ -ProfileFile に正しいファイルの絶対パスを渡す。PATHにtunnel-clientがなければ -TunnelExecutable を明示する。既に設定したキーを維持してログレベルや実行ファイルの指定を変更する場合は、管理アプリ終了後に Configure.ps1 -ReuseKey を実行する。
+Configure.ps1は公式クライアントの `profiles list --json` で既存hagoromoのパスを取得する。WindowsのAPPDATA・HOME・XDG・プロファイルディレクトリ上書きはクライアント自身の解決規則に従う。`tunnel-client profiles list` で確認可能。別ディレクトリ指定で運用している場合等は -ProfileFile に既存ファイルの絶対パスを渡す。見つからない場合は新規作成せず設定処理を停止する。PATHにtunnel-clientがなければ -TunnelExecutable を明示する。既に設定したキーを維持してログレベルや実行ファイルの指定を変更する場合は、管理アプリ終了後に Configure.ps1 -ReuseKey を実行する。
 
 Update.ps1 は新規候補をビルドしてから配置し起動する。旧手動起動が残る場合は配置を拒否する。旧出力の上書き・強制停止は行わない。ビルド失敗時はエラーを返し、既存配置を維持する。
 
@@ -57,6 +57,7 @@ Update.ps1 は新規候補をビルドしてから配置し起動する。旧手
 | M08-W13 | 資格情報・ログ | DPAPIの同一Windowsユーザー復号、別ユーザーでの失敗は隔離検証。秘密がGit・起動引数・ログにないこと。確認時に秘密そのものを共有しない。 |
 | M08-W14 | 停止タイムアウト（隔離データ） | 管理下Jobのみのフォールバック。停止できない場合は更新を停止し原因を表示。 |
 | M08-W15 | 空白・日本語パス | プロファイル・tunnel-client・データディレクトリのパスを含む起動。初期化、stdioツール、購読を確認。 |
+| M08-W16 | 既存プロファイル探索 | HOME環境変数なしのWindows標準配置、公式のディレクトリ上書き、明示 -ProfileFile の場合を確認。既存hagoromoを使用し、未発見時はキー入力・設定保存前に停止。 |
 
 正常終了の検査ではPIDだけでなくJob内のstdio子プロセスも照合する。ログは logs/launcher.log、relay.log、desktop.log、tunnel.log（標準出力・エラー）、tunnel-client.log（公式クライアントログ）。状態の観測時刻を確認する。実データで故意に強制終了・障害注入を行わない。
 

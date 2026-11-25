@@ -18,18 +18,10 @@ try {
     if ([string]::IsNullOrWhiteSpace($TunnelExecutable)) {
         $TunnelExecutable = (Get-Command tunnel-client -CommandType Application -ErrorAction Stop).Source
     }
-    if ([string]::IsNullOrWhiteSpace($ProfileFile)) {
-        $profileDir = if ($env:TUNNEL_CLIENT_PROFILE_DIR) { $env:TUNNEL_CLIENT_PROFILE_DIR }
-            elseif ($env:XDG_CONFIG_HOME) { Join-Path $env:XDG_CONFIG_HOME 'tunnel-client' }
-            else { Join-Path $HOME '.config\tunnel-client' }
-        $ProfileFile = Join-Path $profileDir 'hagoromo.yaml'
-    }
     $exe = (Resolve-Path -LiteralPath $TunnelExecutable).ProviderPath
-    $profile = (Resolve-Path -LiteralPath $ProfileFile).ProviderPath
-    if (-not (Test-Path -LiteralPath $exe -PathType Leaf) -or -not (Test-Path -LiteralPath $profile -PathType Leaf)) {
-        throw 'Tunnel executable or profile file is missing.'
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf) -or [IO.Path]::GetExtension($exe) -ne '.exe') {
+        throw 'Select a Windows tunnel-client executable.'
     }
-    if ([IO.Path]::GetExtension($exe) -ne '.exe') { throw 'Select a Windows tunnel-client executable.' }
     $version = (& $exe --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) {
         throw 'Could not identify tunnel-client version.'
@@ -37,6 +29,40 @@ try {
     if (-not $AllowOtherVersion -and $version -notmatch '^0\.0\.21(?:[+\s]|$)') {
         throw 'The verified configuration uses tunnel-client 0.0.21. Use -AllowOtherVersion only after checking compatibility.'
     }
+    if ([string]::IsNullOrWhiteSpace($ProfileFile)) {
+        # Let the installed client resolve its own profile directory, including
+        # TUNNEL_CLIENT_PROFILE_DIR, XDG_CONFIG_HOME, HOME and Windows APPDATA.
+        # Do not confuse PowerShell's automatic $HOME with the HOME environment variable.
+        $previousEncoding = [Console]::OutputEncoding
+        try {
+            [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+            $profileJson = (& $exe profiles list --json | Out-String).Trim()
+            $profileExit = $LASTEXITCODE
+        } finally {
+            [Console]::OutputEncoding = $previousEncoding
+        }
+        if ($profileExit -ne 0 -or [string]::IsNullOrWhiteSpace($profileJson)) {
+            throw 'Cannot list existing profiles. Run tunnel-client profiles list, then pass -ProfileFile explicitly.'
+        }
+        try {
+            $profiles = @($profileJson | ConvertFrom-Json -ErrorAction Stop)
+            $matches = @($profiles | Where-Object { $null -ne $_ -and $_.Name -ceq 'hagoromo' })
+        } catch {
+            throw 'Cannot parse profile listing. Run tunnel-client profiles list, then pass -ProfileFile explicitly.'
+        }
+        if ($matches.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$matches[0].Path)) {
+            throw 'The hagoromo profile was not uniquely found. Run tunnel-client profiles list (with --profile-dir if needed), then pass -ProfileFile explicitly. No profile was created or changed.'
+        }
+        $ProfileFile = [string]$matches[0].Path
+    }
+    if (-not (Test-Path -LiteralPath $ProfileFile -PathType Leaf)) {
+        throw 'Profile file does not exist. Check tunnel-client profiles list or pass the existing -ProfileFile explicitly.'
+    }
+    $profile = (Resolve-Path -LiteralPath $ProfileFile).ProviderPath
+    if ([IO.Path]::GetExtension($profile) -cne '.yaml') {
+        throw 'The official tunnel-client profile file must have a .yaml extension.'
+    }
+    Write-Host "Using existing profile: $profile"
     $exeHash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
     $config = Join-Path $root 'launcher.json'
     if (-not $ReuseKey) {
