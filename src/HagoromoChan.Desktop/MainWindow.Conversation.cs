@@ -524,7 +524,7 @@ public partial class MainWindow : Window
         try
         {
             var snapshot = JsonSerializer.Deserialize<RuntimeSnapshot>(
-                File.ReadAllText(Path.Combine(_runtimeDirectory, RuntimeControl.StatusFile)));
+                File.ReadAllText(System.IO.Path.Combine(_runtimeDirectory, RuntimeControl.StatusFile)));
             if (RuntimeControl.IsCurrentSnapshot(snapshot, _managedSession, DateTimeOffset.UtcNow))
                 _runtime = snapshot;
         }

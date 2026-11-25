@@ -11,8 +11,17 @@ $fingerprint = Get-HagoromoSharedFingerprint $repo
 
 function Publish-Project([string]$Name, [string]$Output) {
     $project = Join-Path $repo ('src\' + $Name + '\' + $Name + '.csproj')
-    & $dotnet publish $project --configuration Release --self-contained false --nologo --output $Output | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Publish failed: $Name" }
+    # Windows PowerShell decodes native stdout using Console.OutputEncoding.
+    # dotnet/MSBuild can emit UTF-8 even on a Japanese CP932 console.
+    $previousEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        & $dotnet publish $project --configuration Release --self-contained false --nologo --output $Output | Out-Host
+        $publishExit = $LASTEXITCODE
+    } finally {
+        [Console]::OutputEncoding = $previousEncoding
+    }
+    if ($publishExit -ne 0) { throw "Publish failed: $Name (exit $publishExit)" }
 }
 
 Push-Location $repo

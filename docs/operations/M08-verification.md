@@ -21,6 +21,8 @@
 
 Configure.ps1は公式クライアントの `profiles list --json` で既存hagoromoのパスを取得する。WindowsのAPPDATA・HOME・XDG・プロファイルディレクトリ上書きはクライアント自身の解決規則に従う。`tunnel-client profiles list` で確認可能。別ディレクトリ指定で運用している場合等は -ProfileFile に既存ファイルの絶対パスを渡す。見つからない場合は新規作成せず設定処理を停止する。PATHにtunnel-clientがなければ -TunnelExecutable を明示する。既に設定したキーを維持してログレベルや実行ファイルの指定を変更する場合は、管理アプリ終了後に Configure.ps1 -ReuseKey を実行する。
 
+Configure.ps1が設定保存に成功した後は、通常起動・ソース更新・ビルド再試行でキーの再入力は不要。設定変更時は必要に応じて -ReuseKey を使用する。DPAPI復号・トンネル認証は起動後に確認する。
+
 Update.ps1 は新規候補をビルドしてから配置し起動する。旧手動起動が残る場合は配置を拒否する。旧出力の上書き・強制停止は行わない。ビルド失敗時はエラーを返し、既存配置を維持する。
 
 ## 2. 日常操作・更新
@@ -58,6 +60,7 @@ Update.ps1 は新規候補をビルドしてから配置し起動する。旧手
 | M08-W14 | 停止タイムアウト（隔離データ） | 管理下Jobのみのフォールバック。停止できない場合は更新を停止し原因を表示。 |
 | M08-W15 | 空白・日本語パス | プロファイル・tunnel-client・データディレクトリのパスを含む起動。初期化、stdioツール、購読を確認。 |
 | M08-W16 | 既存プロファイル探索 | HOME環境変数なしのWindows標準配置、公式のディレクトリ上書き、明示 -ProfileFile の場合を確認。既存hagoromoを使用し、未発見時はキー入力・設定保存前に停止。 |
+| M08-W17 | ビルドログと再試行 | 日本語Windows PowerShellで全publishの結果が読めること、失敗時に設定の再入力が不要であること、出力エンコーディングが復元されることを確認。 |
 
 正常終了の検査ではPIDだけでなくJob内のstdio子プロセスも照合する。ログは logs/launcher.log、relay.log、desktop.log、tunnel.log（標準出力・エラー）、tunnel-client.log（公式クライアントログ）。状態の観測時刻を確認する。実データで故意に強制終了・障害注入を行わない。
 
@@ -67,3 +70,5 @@ Update.ps1 は新規候補をビルドしてから配置し起動する。旧手
     dotnet run --project .\tests\HagoromoChan.Tests --configuration Release
 
 既存26検査に現在セッションの状態、ローカルパイプ、Windows引数引用の3検査を追加した（計29、未実行）。PowerShellスクリプトの構文・動作、WindowsのJob/DPAPI、実際のMCP、GUI・ログオンも別途確認する。結果、HEAD SHA、失敗時のエラーと機密を除いたログを返却する。M08の完了判定は実機検査後。
+
+2026-11-25 実機報告: v1.0.1のConfigure.ps1は既存プロファイルを検出し設定保存成功。Launcher/Relay publish成功、DesktopはCS0104で失敗し配置前に停止。v1.0.2に更新後、Configure.ps1は繰り返さずUpdate.ps1を再実行する。文字化け対策・修正版ビルド・起動は未確認。
