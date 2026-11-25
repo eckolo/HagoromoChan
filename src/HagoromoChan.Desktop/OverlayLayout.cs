@@ -102,20 +102,10 @@ internal static class OverlayLayout
             left >= right ? OverlaySide.Left : OverlaySide.Right);
     }
 
-    // Prefer a width that fits the corridor beside the fixed conversation zone.
-    // This is determined by geometry, never by the number or height of messages.
-    public static int AuxiliaryWidth(ScreenRect area, OverlayPlacement conversation, int desired,
-        int minimum, int gap)
-    {
-        var corridor = conversation.Side switch
-        {
-            OverlaySide.Left => area.Right - conversation.Bounds.Right,
-            OverlaySide.Right => conversation.Bounds.X - area.X,
-            _ => area.Width
-        };
-        return Math.Max(1, Math.Min(area.Width,
-            corridor - gap >= minimum ? Math.Min(desired, corridor - gap) : desired));
-    }
+    // Keep the status frame in the mascot's own width, including after resize
+    // or monitor changes. No discontinuous corridor-based width threshold.
+    public static int StatusWidth(ScreenRect area, ScreenRect mascot) =>
+        Math.Clamp(mascot.Width, 1, Math.Max(1, area.Width));
 
     // Accept only candidates adjacent to the mascot or its adjacent auxiliary slot.
     // Clamp on the cross axis, not along the distance from the chosen anchor.
@@ -156,9 +146,9 @@ internal static class OverlayLayout
     // Prefer the free corridor below the mascot, then immediately above or to
     // its side. Do not reserve an invisible hover menu or a remote screen corner.
     public static ScreenRect? StatusPlacement(ScreenRect area, ScreenRect mascot,
-        OverlayPlacement conversation, int width, int height, int gap) =>
+        OverlayPlacement conversation, int width, int height, int gap, bool conversationVisible) =>
         NearbyAuxiliary(area, mascot, width, height, gap, OverlaySide.Below, [conversation.Bounds])
-        ?? NearbyAuxiliary(area, mascot, width, height, gap, OverlaySide.Below, []);
+        ?? (conversationVisible ? null : NearbyAuxiliary(area, mascot, width, height, gap, OverlaySide.Below, []));
 
     public static bool Intersects(ScreenRect a, ScreenRect b) =>
         a.X < b.Right && a.Right > b.X && a.Y < b.Bottom && a.Bottom > b.Y;

@@ -93,6 +93,9 @@ internal sealed class DesktopPanels
     public TextBlock QueueText { get; } = Label("", 12);
     public TextBlock ConnectionErrorText { get; } = Label("", 12);
     public TextBlock StatusDetail { get; } = Label("", 12);
+    public TextBlock RuntimeSummary { get; } = Label("", 12);
+    public TextBlock RuntimeDetail { get; } = Label("", 12);
+    public Button RuntimeToggleButton { get; } = SymbolButton("⌄", "接続状態の詳細を開く");
     public Button RelayRetryButton { get; } = ActionButton("配信を再試行");
     public Button OpenInputButton { get; } = ActionButton("入力");
     public Button UnreadButton { get; } = ActionButton("新着");
@@ -193,6 +196,12 @@ internal sealed class DesktopPanels
         _statusContent.Children.Add(QueueText);
         _statusContent.Children.Add(ConnectionErrorText);
         _statusContent.Children.Add(StatusDetail);
+        RuntimeSummary.Foreground = White;
+        RuntimeSummary.Visibility = Visibility.Collapsed;
+        _statusContent.Children.Add(RuntimeSummary);
+        RuntimeDetail.Foreground = White;
+        RuntimeDetail.Visibility = Visibility.Collapsed;
+        _statusContent.Children.Add(RuntimeDetail);
         var actions = new WrapPanel();
         RelayRetryButton.Visibility = Visibility.Collapsed;
         UnreadButton.Visibility = Visibility.Collapsed;
@@ -202,6 +211,7 @@ internal sealed class DesktopPanels
         actions.Children.Add(RelayRetryButton);
         actions.Children.Add(OpenInputButton);
         actions.Children.Add(UnreadButton);
+        actions.Children.Add(RuntimeToggleButton);
         actions.Children.Add(SymbolButton("⧉", "状態の詳細をコピー", CopyStatus));
         _statusContent.Children.Add(actions);
         Status = Surface("通知・状態", Frame(_statusContent, Dark, 8), () => SetVisible(Status!, false));
@@ -279,7 +289,17 @@ internal sealed class DesktopPanels
     public void ShowMessage(string id) => SetConversation(_visibility with { History = true }, false, id);
 
     public void CopyStatus() => Copy(string.Join(Environment.NewLine,
-        new[] { ConnectionText.Text, QueueText.Text, ConnectionErrorText.Text, StatusDetail.Text }));
+        new[] { ConnectionText.Text, QueueText.Text, ConnectionErrorText.Text, StatusDetail.Text, RuntimeDetail.Text }));
+
+    public void SetRuntimeDetails(bool expanded, string text, string summary)
+    {
+        RuntimeSummary.Text = summary;
+        RuntimeSummary.Visibility = !expanded && summary.Length != 0 ? Visibility.Visible : Visibility.Collapsed;
+        RuntimeDetail.Text = text;
+        RuntimeDetail.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        RuntimeToggleButton.Content = expanded ? "⌃" : "⌄";
+        DescribeButton(RuntimeToggleButton, expanded ? "接続状態の詳細を閉じる" : "接続状態の詳細を開く");
+    }
 
     public void UpdateHistory(IReadOnlyList<ChatMessage> messages, IEnumerable<string> unread)
     {
@@ -688,10 +708,13 @@ internal sealed class DesktopPanels
             // status directly next to the mascot, below if the work area permits.
             if (Wants(Status))
             {
-                var statusWidth = OverlayLayout.AuxiliaryWidth(area, zone, Px(300), Px(155), gap);
+                var statusWidth = OverlayLayout.StatusWidth(area, anchor);
                 _statusContent.Measure(new Size(Math.Max(1, statusWidth / scale - 18), double.PositiveInfinity));
                 var statusHeight = Math.Min(area.Height, Px(Math.Max(46, _statusContent.DesiredSize.Height + 18)));
-                var status = OverlayLayout.StatusPlacement(area, anchor, zone, statusWidth, statusHeight, gap);
+                // Do not cover an open conversation to fit status. The context menu
+                // still exposes full diagnostics when a nearby slot is unavailable.
+                var status = OverlayLayout.StatusPlacement(area, anchor, zone, statusWidth, statusHeight, gap,
+                    Conversation.IsVisible);
                 if (status is { } bounds) ShowAt(Status, bounds);
                 else HideIfVisible(Status);
             }

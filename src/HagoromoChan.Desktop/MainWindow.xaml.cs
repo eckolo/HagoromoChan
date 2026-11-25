@@ -44,6 +44,13 @@ public partial class MainWindow : Window
     private bool _initialized;
     private bool _closing;
     private bool _exitRequested;
+    private bool _localExitQueued;
+    private bool _controlRequest;
+    private bool _expandedStatus;
+    private readonly string _runtimeDirectory;
+    private readonly string? _managerPipe = Environment.GetEnvironmentVariable(RuntimeControl.PipeVariable);
+    private readonly string? _managedSession = Environment.GetEnvironmentVariable(RuntimeControl.SessionVariable);
+    private RuntimeSnapshot? _runtime;
     private bool _pointerDown;
     private bool _dragging;
     private (int X, int Y) _dragStart;
@@ -70,6 +77,7 @@ public partial class MainWindow : Window
     public MainWindow(string dataDirectory)
     {
         InitializeComponent();
+        _runtimeDirectory = dataDirectory;
         _relay = new RelayClient(dataDirectory);
         _pendingStore = new PendingMessageStore(dataDirectory);
         _preferencesStore = new DesktopPreferencesStore(dataDirectory);
@@ -95,6 +103,7 @@ public partial class MainWindow : Window
         Topmost = _preferences.Topmost;
 
         _panels = new DesktopPanels(this, DismissSurfaces, OpenUnread, MarkRead, OpenComposer);
+        _panels.RuntimeToggleButton.Click += (_, _) => ToggleConnectionDetails();
         MessageInput.PreviewKeyDown += MessageInput_PreviewKeyDown;
         _panels.DraftChanged += RefreshComposer;
         MessageInput.LostKeyboardFocus += MessageInput_LostKeyboardFocus;
@@ -130,14 +139,53 @@ public partial class MainWindow : Window
 
     private void RequestExit()
     {
-        if (_exitRequested || _closing)
+        if (string.IsNullOrEmpty(_managerPipe))
+            RequestLocalExit(); // Standalone development/debug mode.
+        else
+            RequestManagedControl(RuntimeCommand.Stop);
+    }
+
+    private async void RequestManagedControl(RuntimeCommand command)
+    {
+        if (_exitRequested || _closing || _controlRequest || string.IsNullOrEmpty(_managerPipe))
             return;
+        _controlRequest = true;
+        RefreshComposer();
+        try
+        {
+            if (!await RuntimeControl.SendAsync(_managerPipe, command, _lifetime.Token))
+                ShowSendFeedback("管理プロセスが処理中です。終了・再起動を再試行してください。");
+            else
+            {
+                _exitRequested = true;
+                _placementTimer.Stop();
+                RefreshComposer();
+                // The supervisor owns the ordered stop and will signal this window.
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception error) when (error is IOException or OperationCanceledException or UnauthorizedAccessException)
+        {
+            ShowSendFeedback("管理プロセスへ終了・再起動を依頼できません。状態を確認してください。");
+        }
+        finally
+        {
+            _controlRequest = false;
+            if (!_closing) RefreshComposer();
+        }
+    }
+
+    internal void RequestLocalExit()
+    {
+        if (_closing || _localExitQueued)
+            return;
+        _localExitQueued = true;
         _exitRequested = true;
         _placementTimer.Stop();
 
         // Leave the active ContextMenu/Popup event stack before shutting down.
-        // Shutdown targets this WPF Application only, never the independent relay
-        // or tunnel processes. Repeated clicks cannot enqueue another shutdown.
+        // This is only the local WPF shutdown. The supervisor sends the stop
+        // event and observes our exit before stopping its other children.
         if (_contextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>

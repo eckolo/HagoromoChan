@@ -46,6 +46,8 @@ public partial class MainWindow : Window
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            ReadRuntimeSnapshot();
+            RefreshStatus();
             try
             {
                 await _relayGate.WaitAsync(cancellationToken);
@@ -140,7 +142,7 @@ public partial class MainWindow : Window
 
     private async Task SendMessageAsync()
     {
-        if (_sending || _imeComposing || _compositionJustEnded)
+        if (_sending || _imeComposing || _compositionJustEnded || _closing || _exitRequested || _controlRequest)
         {
             return;
         }
@@ -282,7 +284,7 @@ public partial class MainWindow : Window
             : "送信（Ctrl+Enter）、Enterで改行";
         SendButton.ToolTip = sendDescription;
         System.Windows.Automation.AutomationProperties.SetName(SendButton, sendDescription);
-        SendButton.IsEnabled = !_sending && (_storageBlocked || _pending is not null
+        SendButton.IsEnabled = !_closing && !_exitRequested && !_controlRequest && !_sending && (_storageBlocked || _pending is not null
             || (_historyLoaded && !string.IsNullOrWhiteSpace(_panels.DraftText)));
         if (_initialized)
         {
@@ -470,7 +472,7 @@ public partial class MainWindow : Window
     {
         if (!_initialized || _closing)
             return;
-        if (_compactSuppressed)
+        if (_compactSuppressed && !_expandedStatus)
         {
             _panels.SetVisible(_panels.Status, false);
             return;
@@ -487,7 +489,15 @@ public partial class MainWindow : Window
         _panels.UnreadButton.Content = $"新着 {unread}";
         _panels.UnreadButton.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
         var waiting = _status is { } status && (status.QueuedCount > 0 || status.AwaitingReplyCount > 0);
-        var shouldShow = _connectionProblem || _status is { Subscribed: false } || waiting || _sending
+        var summary = string.IsNullOrEmpty(_managedSession) ? ""
+            : _runtime is null ? "管理状態: 未確認"
+            : !_runtime.RelayReady ? "中継: 未準備"
+            : !_runtime.TunnelReady ? "トンネル: 未準備／停止"
+            : "";
+        _panels.SetRuntimeDetails(_expandedStatus, DescribeRuntime(), summary);
+        var runtimeProblem = _managedSession is not null &&
+            (_runtime is null || !_runtime.RelayReady || !_runtime.TunnelReady);
+        var shouldShow = _expandedStatus || runtimeProblem || _connectionProblem || _status is { Subscribed: false } || waiting || _sending
             || _preferencesSaveBlocked || details.Length != 0 || !string.IsNullOrEmpty(ConnectionErrorText.Text)
             || unread > 0;
         if (_sending && string.IsNullOrEmpty(QueueText.Text))
@@ -497,6 +507,57 @@ public partial class MainWindow : Window
         _panels.SetVisible(_panels.Status, shouldShow);
         if (shouldShow)
             _panels.RequestArrange();
+    }
+
+    private void ToggleConnectionDetails()
+    {
+        _expandedStatus = !_expandedStatus;
+        _compactSuppressed = false;
+        ReadRuntimeSnapshot();
+        RefreshStatus();
+    }
+
+    private void ReadRuntimeSnapshot()
+    {
+        _runtime = null;
+        if (string.IsNullOrEmpty(_managedSession)) return;
+        try
+        {
+            var snapshot = JsonSerializer.Deserialize<RuntimeSnapshot>(
+                File.ReadAllText(System.IO.Path.Combine(_runtimeDirectory, RuntimeControl.StatusFile)));
+            if (RuntimeControl.IsCurrentSnapshot(snapshot, _managedSession, DateTimeOffset.UtcNow))
+                _runtime = snapshot;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { }
+    }
+
+    private string DescribeRuntime()
+    {
+        if (string.IsNullOrEmpty(_managedSession))
+            return "個別開発起動（管理対象外）\nRelay・トンネルのプロセス状態は未確認";
+        if (_runtime is not { } state)
+            return "管理プロセスの状態を確認中";
+        var tunnel = state.TunnelState switch
+        {
+            "ready" => "準備完了",
+            "starting" or "not-ready" => "接続準備中／未準備",
+            "unconfigured" => "未設定",
+            "blocked" => "重複起動のため停止",
+            "failed" or "exited" => "異常終了／起動失敗",
+            _ => "停止"
+        };
+        var phase = state.Phase switch
+        {
+            "starting" => "起動中", "stopping" => "終了中", "running" => "稼働中",
+            _ => "停止／不明"
+        };
+        var subscription = _status is null || _connectionProblem ? "未確認"
+            : _status.Subscribed ? "ローカル上有効" : "未購読／期限切れ";
+        return $"管理: {phase}\nDesktop: PID {state.DesktopPid?.ToString() ?? "不明"}\n"
+            + $"Relay: {(state.RelayReady ? "応答あり" : "未準備")} (PID {state.RelayPid?.ToString() ?? "なし"})\n"
+            + $"Tunnel: {tunnel} (PID {state.TunnelPid?.ToString() ?? "なし"})\n"
+            + $"購読: {subscription}\nクラウド側の購読・Dot実行状態は別途確認"
+            + (string.IsNullOrWhiteSpace(state.Problem) ? "" : "\n" + state.Problem);
     }
 
     private sealed class MessageDisplay(ChatMessage message)

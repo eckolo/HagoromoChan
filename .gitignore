@@ -22,3 +22,14 @@ desktop.lock
 # M03 local display preferences and unread checkpoints
 desktop-ui.json
 desktop-ui.json.tmp
+
+# M08 local runtime / configuration (normally under LOCALAPPDATA)
+launcher.json
+launcher.json.tmp
+launcher.lock
+deployment.lock
+runtime-status.json
+runtime-status.json.tmp
+app-stage-*/
+app-previous-*/
+logs/
