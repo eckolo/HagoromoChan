@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _placementTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private bool _initialized;
     private bool _closing;
+    private bool _exitRequested;
     private bool _pointerDown;
     private bool _dragging;
     private (int X, int Y) _dragStart;
@@ -131,24 +132,66 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RequestExit()
+    {
+        if (_exitRequested || _closing)
+            return;
+        _exitRequested = true;
+        _hoverIn.Stop();
+        _hoverOut.Stop();
+        _placementTimer.Stop();
+
+        // Leave the active ContextMenu/Popup event stack before shutting down.
+        // Shutdown targets this WPF Application only, never the independent relay
+        // or tunnel processes. Repeated clicks cannot enqueue another shutdown.
+        if (_contextMenu is { IsOpen: true } menu)
+            menu.IsOpen = false;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            PrepareShutdown();
+            Application.Current.Shutdown();
+        }));
+    }
+
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (e.Cancel)
+        if (!e.Cancel)
+            PrepareShutdown();
+    }
+
+    private void PrepareShutdown()
+    {
+        if (_closing)
             return;
+
         _closing = true;
         _hoverIn.Stop();
         _hoverOut.Stop();
         _placementTimer.Stop();
+        _panels.PrepareForShutdown();
+        if (_contextMenu is { IsOpen: true } menu)
+            menu.IsOpen = false;
+        _lifetime.Cancel();
+
+        // Preferences are best-effort at shutdown. A disappearing monitor/HWND
+        // must not prevent the application from releasing its instance lock.
         if (_initialized)
-            RememberPosition();
-        _panels.CloseAll();
+        {
+            try { RememberPosition(); }
+            catch (InvalidOperationException error)
+            {
+                System.Diagnostics.Trace.TraceWarning("Desktop position could not be saved at shutdown: {0}",
+                    error.GetType().Name);
+            }
+        }
+        // WPF closes the owned windows as part of closing this owner. In the
+        // explicit exit path Application.Shutdown also closes every app window.
     }
 
     protected override void OnClosed(EventArgs e)
     {
-        _lifetime.Cancel();
-        _relay.Dispose();
-        base.OnClosed(e);
+        try { _relay.Dispose(); }
+        finally { base.OnClosed(e); }
     }
 }

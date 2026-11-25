@@ -738,11 +738,14 @@ internal sealed class DesktopPanels
         foreach (var window in _windows) window.Topmost = enabled;
     }
 
-    public void CloseAll()
+    // The owner and Application.Shutdown close the owned windows. Do not call
+    // Window.Close again on each child from inside the owner's Closing event.
+    public void PrepareForShutdown()
     {
         _closing = true;
         _requested.Clear();
-        foreach (var window in _windows) window.Close();
+        _visibility = default;
+        _wheelRemainder = 0;
     }
 
     private Window Surface(string title, UIElement content, Action onClose)
@@ -871,6 +874,8 @@ internal sealed class DesktopPanels
 
     private static void StyleButton(ButtonBase button, string text)
     {
+        button.Template = (ControlTemplate)Application.Current.FindResource("OverlayButtonTemplate");
+        ToolTipService.SetShowOnDisabled(button, true);
         button.Content = text;
         button.FontSize = 12;
         button.Padding = new Thickness(5, 3, 5, 3);

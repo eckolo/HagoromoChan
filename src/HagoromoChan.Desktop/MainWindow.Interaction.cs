@@ -158,7 +158,7 @@ public partial class MainWindow : Window
 
     private void CheckPlacement()
     {
-        if (_closing)
+        if (_closing || _exitRequested)
             return;
         var area = NativeDesktop.WorkArea(this);
         var scale = NativeDesktop.Scale(this);
@@ -313,11 +313,11 @@ public partial class MainWindow : Window
             RememberPosition();
         }));
         menu.Items.Add(new Separator());
-        menu.Items.Add(MenuCommand("終了", Close));
+        menu.Items.Add(MenuCommand("終了", RequestExit));
         menu.Closed += (_, _) =>
         {
             _contextMenu = null;
-            if (!_closing && IsMouseOver)
+            if (!_closing && !_exitRequested && IsMouseOver)
                 EnterMascot();
         };
         menu.IsOpen = true;
