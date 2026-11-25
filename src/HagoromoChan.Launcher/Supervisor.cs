@@ -227,7 +227,7 @@ internal sealed class Supervisor : IDisposable
                 "CONTROL_PLANE_TUNNEL_ID", "MCP_COMMAND", "MCP_SERVER_URL" })
                 env[name] = null;
             var relayExe = Path.Combine(_app, "Relay", "HagoromoChan.Relay.exe");
-            var mcp = RuntimeControl.QuoteWindowsArgument(relayExe) + " --mcp-stdio";
+            var mcp = RuntimeControl.BuildTunnelStdioCommand(relayExe);
             Log("Starting configured tunnel with initialized-notification shim.");
             _tunnel = ChildProcess.Start(config.Executable,
                 ["run", "--profile-file", config.ProfileFile, "--mcp.command", mcp,

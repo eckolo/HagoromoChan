@@ -36,6 +36,34 @@ internal static class RuntimeControlChecks
         True(RuntimeControl.QuoteWindowsArgument("a\"b") == "\"a\\\"b\"", "Embedded quote escaped.");
     }
 
+    public static void TunnelStdioCommandQuoting()
+    {
+        var plain = @"C:\Users\Example\AppData\Local\HagoromoChan\app\Relay\HagoromoChan.Relay.exe";
+        True(RuntimeControl.BuildTunnelStdioCommand(plain) ==
+            "\"C:\\\\Users\\\\Example\\\\AppData\\\\Local\\\\HagoromoChan\\\\app\\\\Relay\\\\HagoromoChan.Relay.exe\" --mcp-stdio",
+            "Tunnel command preserves the Windows path separators.");
+        foreach (var path in new[] { plain, @"D:\開発 環境\羽衣ちゃん\Relay.exe",
+            @"\\server\share\app\Relay.exe", @"C:\user's folder\Relay.exe" })
+        {
+            var command = RuntimeControl.BuildTunnelStdioCommand(path);
+            // Independent model of the quoted token in v0.0.21 parseCommandArgv:
+            // backslash escapes the next character even inside double quotes.
+            True(command[0] == '"', "Command starts with a quoted executable.");
+            var decoded = new System.Text.StringBuilder();
+            var index = 1;
+            for (; index < command.Length; index++)
+            {
+                if (command[index] == '"') break;
+                if (command[index] == '\\') index++;
+                True(index < command.Length, "Escape is followed by a character.");
+                decoded.Append(command[index]);
+            }
+            True(index < command.Length && command[index..] == "\" --mcp-stdio",
+                "The executable is followed by the one fixed stdio argument.");
+            True(decoded.ToString() == path, "The tunnel parser recovers the original executable.");
+        }
+    }
+
     public static void PipeCommands() => RunPipeCommands().GetAwaiter().GetResult();
 
     private static async Task RunPipeCommands()

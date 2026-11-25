@@ -179,8 +179,9 @@ internal static class ConversationUiChecks
         })
         {
             var zone = OverlayLayout.ConversationZone(area, mascot, 1);
-            var statusWidth = OverlayLayout.AuxiliaryWidth(area, zone, 300, 155, 8);
-            var status = OverlayLayout.StatusPlacement(area, mascot, zone, statusWidth, 180, 8);
+            var statusWidth = OverlayLayout.StatusWidth(area, mascot);
+            Equal(mascot.Width, statusWidth);
+            var status = OverlayLayout.StatusPlacement(area, mascot, zone, statusWidth, 180, 8, conversationVisible: true);
             True(status.HasValue, "Status fits directly adjacent to the mascot.");
             var s = status!.Value;
             True(s.X >= area.X && s.Y >= area.Y && s.Right <= area.Right && s.Bottom <= area.Bottom,
@@ -188,7 +189,7 @@ internal static class ConversationUiChecks
             True(!OverlayLayout.Intersects(s, mascot) && !OverlayLayout.Intersects(s, zone.Bounds),
                 "Status avoids the mascot and the reserved conversation zone when space permits.");
             True(Distance(s, mascot) <= 8, "No gap for a removed hover menu.");
-            Equal(status, OverlayLayout.StatusPlacement(area, mascot, zone, statusWidth, 180, 8));
+            Equal(status, OverlayLayout.StatusPlacement(area, mascot, zone, statusWidth, 180, 8, conversationVisible: true));
             if (mascot.Bottom + 8 + 180 <= area.Bottom)
                 Equal(mascot.Bottom + 8, s.Y);
         }
@@ -198,7 +199,7 @@ internal static class ConversationUiChecks
         var bottomArea = new ScreenRect(0, 0, 1920, 1040);
         var bottomMascot = new ScreenRect(1725, 764, 177, 260);
         var bottomZone = OverlayLayout.ConversationZone(bottomArea, bottomMascot, 1);
-        var bottomStatus = OverlayLayout.StatusPlacement(bottomArea, bottomMascot, bottomZone, 190, 80, 8);
+        var bottomStatus = OverlayLayout.StatusPlacement(bottomArea, bottomMascot, bottomZone, OverlayLayout.StatusWidth(bottomArea, bottomMascot), 80, 8, conversationVisible: true);
         True(bottomStatus.HasValue, "Status fits immediately above the bottom-edge mascot.");
         Equal(bottomMascot.Y - 8, bottomStatus!.Value.Bottom);
 
@@ -207,6 +208,42 @@ internal static class ConversationUiChecks
             new ScreenRect(450, 350, 100, 100), 120, 60, 8, OverlaySide.Above,
             new[] { new ScreenRect(0, 250, 1000, 300) });
         True(blocked is null, "An unavailable adjacent slot must not jump to a remote corner.");
+    }
+
+    public static void MascotStatusWidth()
+    {
+        foreach (var scale in new[] { 1.0, 1.25, 1.5, 2.0 })
+        {
+            var area = new ScreenRect(-2560, -60, 2560, 1440);
+            int Px(double dip) => (int)Math.Ceiling(dip * scale);
+            foreach (var height in new[] { 120, 180, 260 })
+            {
+                var width = (int)Math.Ceiling(height * 0.68 * scale);
+                foreach (var x in new[] { area.X, area.Right - width, area.X + 600 })
+                {
+                    var anchor = new ScreenRect(x, area.Bottom - Px(height), width, Px(height));
+                    var zone = OverlayLayout.ConversationZone(area, anchor, scale);
+                    var actual = OverlayLayout.StatusWidth(area, anchor);
+                    Equal(width, actual);
+                    var status = OverlayLayout.StatusPlacement(area, anchor, zone, actual, Px(160), Px(8),
+                        conversationVisible: true);
+                    True(status.HasValue, "Normal work area has a nearby status slot.");
+                    Equal(width, status!.Value.Width);
+                    Equal(anchor.X, status.Value.X);
+                    True(!OverlayLayout.Intersects(status.Value, anchor) &&
+                        !OverlayLayout.Intersects(status.Value, zone.Bounds), "Status must not obscure mascot or conversation.");
+                }
+            }
+        }
+        // Only an overlapping slot exists. Use it only if the conversation is closed.
+        var cramped = new ScreenRect(0, 0, 200, 180);
+        var mascot = new ScreenRect(0, 60, 80, 120);
+        var conversation = new OverlayPlacement(new ScreenRect(88, 0, 112, 180), OverlaySide.Right);
+        var statusWidth = OverlayLayout.StatusWidth(cramped, mascot);
+        True(OverlayLayout.StatusPlacement(cramped, mascot, conversation, statusWidth, 100, 8,
+            conversationVisible: true) is null, "Do not cover open conversation.");
+        True(OverlayLayout.StatusPlacement(cramped, mascot, conversation, statusWidth, 100, 8,
+            conversationVisible: false).HasValue, "Allow the free space when conversation is closed.");
     }
 
     private static int Distance(ScreenRect a, ScreenRect b)

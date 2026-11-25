@@ -30,9 +30,11 @@ var tests = new (string Name, Action Run)[]
     ("Input and conversation history toggle independently", ConversationUiChecks.IndependentVisibility),
     ("History navigation retains surviving cards", ConversationUiChecks.RetainedHistoryCards),
     ("Auxiliary surfaces remain adjacent to the mascot", ConversationUiChecks.NearbyAuxiliaryWindows),
+    ("Status width follows mascot size without obscuring open conversation", ConversationUiChecks.MascotStatusWidth),
     ("Runtime snapshots are scoped to the current session and time", RuntimeControlChecks.SnapshotIdentity),
     ("Current-user runtime control pipe transmits bounded commands and acknowledgements", RuntimeControlChecks.PipeCommands),
-    ("Windows argument quoting handles spaces, Japanese paths, quotes and trailing separators", RuntimeControlChecks.WindowsArgumentQuoting)
+    ("Windows argument quoting handles spaces, Japanese paths, quotes and trailing separators", RuntimeControlChecks.WindowsArgumentQuoting),
+    ("Tunnel stdio command preserves Windows paths through the inner parser", RuntimeControlChecks.TunnelStdioCommandQuoting)
 };
 
 var failures = 0;

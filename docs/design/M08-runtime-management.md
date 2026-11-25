@@ -26,7 +26,7 @@ HagoromoChan.exe（Launcher / WinExe、通常ウィンドウなし）がDesktop�
 
 現行の公式tunnel-client 0.0.21（ユーザー実機: 714f2d67844b660af25754f1d19b0360b346b13b）を前提とする。既存hagoromoプロファイルのファイルを読み、配置済みRelay.exe --mcp-stdioをコマンドに上書きする。2026-11-25、ユーザーは --mcp.stdio-send-initialized-notification=true で購読成功を報告。管理起動に固定し、既存プロファイルは編集しない。Configure.ps1は明示 -ProfileFile がない場合に公式クライアント自身の profiles list --json を利用して既存hagoromoのパスを解決する（PowerShellの $HOME を用いた推定は行わない）。見つからなければ設定保存前に停止し、新規プロファイルを作成しない。Configure.ps1が実行ファイルの絶対パス、SHA256、バージョン、プロファイルの絶対パス、ログレベル、WindowsユーザーのDPAPIで暗号化したruntimeキーをlauncher.jsonに保存する。実行ファイルが変更された場合は明示的な再設定を要求する。別バージョンは明示オプションと互換性確認が必要。キーはトンネル起動の環境変数だけに渡し、Relay/stdio/Desktopに不要なOpenAIキーを渡さない、または起動時に消去する。キーはGit・引数・診断ログに書かない。平文HTTPログは無効化する。OSユーザー自身のアクセス権は信頼境界であり、同じユーザーによる読み取りを防ぐものではない。
 
-管理状態はruntime-status.jsonに一時ファイルから置換して記録。セッションIDと観測時刻が一致・新鮮な状態のみ表示する。Relayの管理セッションに一致する/health、Tunnelのループバックreadyz、各PID、起動・停止・異常を区別する。トンネルのreadyzはクラウド側購読成立・Dot実行の証明ではない。既存の「購読有効（ローカル中継）」と「新着」規則、M06の詳細な診断・復旧は変更しない。右クリックの「接続状態」と既存状態窓の⌄/⌃で同じ枠を展開・縮小する。健康状態でも明示的に表示可能。右クリックのスタートアップ登録項目は追加しない。
+管理状態はruntime-status.jsonに一時ファイルから置換して記録。セッションIDと観測時刻が一致・新鮮な状態のみ表示する。Relayの管理セッションに一致する/health、Tunnelのループバックreadyz、各PID、起動・停止・異常を区別する。トンネルのreadyzはクラウド側購読成立・Dot実行の証明ではない。既存の「購読有効（ローカル中継）」と「新着」規則、M06の詳細な診断・復旧は変更しない。右クリックの「接続状態」と既存状態窓の⌄/⌃で同じ枠を展開・縮小する。健康状態でも明示的に表示可能。右クリックのスタートアップ登録項目は追加しない。状態枠は展開・縮小とも羽衣ちゃん本体の実表示幅と一致させ、上下配置では左右端を揃える。キャラクターのサイズ・位置による従来の空き幅の閾値は廃止する。本文の改行・折り返しに応じて高さを決め、開いている会話領域を覆わない近接配置を優先する。両方が収まらない場合は状態枠を一時的に隠し、既存の右クリックから詳細コピー等を利用できるようにする。詳細枠の内容が小サイズで十分読めるかは実機検査事項とする。
 
 ## 4. 配置・更新
 
@@ -45,3 +45,9 @@ Startup.ps1は標準ユーザーのスタートアップフォルダーにHagoro
 現環境には.NET SDK、Windows PowerShell、Windows GUIがない。Windows APIの実際の挙動、Job Objectの異常終了、コンソール停止、DPAPI復号、ショートカット登録、MCP往復、ビルド・回帰検査は未実行。別のtunnel-client実行中は保守的に起動・更新を拒否するため無関係な公式トンネルとの同時運用も制約される。遠隔ホストに存在する同一トンネルはローカルから検知できない。Windows 11で旧版プロセスを正常停止してから移行し、[実機確認手順](../operations/M08-verification.md)に従う。M06とM14の実装は着手しない。
 
 参照: [公式トンネル設定 v0.0.21](https://github.com/openai/tunnel-client/blob/714f2d67844b660af25754f1d19b0360b346b13b/docs/configuration.md)、[UpdateProcThreadAttribute](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)、[Create processes](https://learn.microsoft.com/en-us/windows/win32/procthread/creating-processes)。
+
+### v1.0.3 実機指摘への修正
+
+v1.0.2ではユーザーがLauncher、Relay、Desktopの管理起動と状態枠展開を確認。Tunnelは起動直後にexit code 1となり、stdio実行ファイルパスの区切り文字がすべて脱落するエラーを記録した。公式v0.0.21固定SHAの `parseCommandArgv` は二重引用符内でもバックスラッシュをエスケープとして処理する。Windowsプロセス生成用の引用とは別の `BuildTunnelStdioCommand` で各バックスラッシュを二重化し、外側は既存のWindows引数引用を維持する。認証設定・既存プロファイル・DB・購読は変更しない。公式ソース: [config.go](https://github.com/openai/tunnel-client/blob/714f2d67844b660af25754f1d19b0360b346b13b/pkg/runtimeconfig/config.go#L2835-L2901)。
+
+状態枠の幅が中・大で逆転し、吹き出しと重なる旨の実機指摘を受領。固定300 DIP案は採用せず、ユーザーの追加指示に従い本体実表示幅に一致させる。M08の既存状態枠調整の範囲内で扱い、M03を再開したり別IDを追加したりしない。会話領域が開いている場合は重なりを許容する従来のフォールバックを行わない。小さな作業領域で表示できない場合の右クリック代替操作を維持する。幅・位置・詳細の可読性はWindows実機未検証。

@@ -51,6 +51,17 @@ public static class RuntimeControl
         return result.ToString();
     }
 
+    // tunnel-client v0.0.21 parseCommandArgv is NOT the Windows argv parser.
+    // Backslashes escape the next character even inside double quotes.
+    // Preserve every separator before ChildProcess.Start performs the separate
+    // outer Windows command-line quoting.
+    public static string BuildTunnelStdioCommand(string executable)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(executable);
+        return "\"" + executable.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal) + "\" --mcp-stdio";
+    }
+
     public static bool IsCurrentSnapshot(RuntimeSnapshot? snapshot, string session, DateTimeOffset now) =>
         snapshot is not null && snapshot.Session == session &&
         now - snapshot.ObservedAt >= TimeSpan.FromSeconds(-2) &&
