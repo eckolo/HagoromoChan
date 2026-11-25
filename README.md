@@ -21,8 +21,14 @@ Windows 11と.NET 10 SDKを使用します。依存パッケージの初回取�
 ```powershell
 git clone git@github.com:eckolo/HagoromoChan.git
 cd HagoromoChan
-powershell -NoProfile -File .\scripts\Start.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start.ps1
 ```
+
+`-ExecutionPolicy Bypass` は、このコマンドで起動するPowerShellとその子プロセスに適用する実行ポリシーです。確認済みの起動スクリプトを実行するために指定しています。この指定はプロセスの終了まで有効です。
+
+「このシステムではスクリプトの実行が無効になっている」と表示された場合は、上記の `-ExecutionPolicy Bypass` を含むコマンドで起動してください。同じエラーが続く場合は `powershell -NoProfile -Command "Get-ExecutionPolicy -List"` で実行ポリシーを確認します。`MachinePolicy` または `UserPolicy` に設定がある環境では、そのグループポリシーが優先されます。
+
+[Windows PowerShellの実行ポリシー](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 
 スクリプトはReleaseでビルドし、中継と会話画面を起動します。中継が同じポートですでに稼働していれば再利用します。会話画面は閉じると終了します。中継は別のコンソールで動き続け、そのウィンドウでCtrl+Cを押すと終了します。
 
