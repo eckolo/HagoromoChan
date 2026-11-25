@@ -259,12 +259,17 @@ public partial class MainWindow : Window
             SavePreferences();
         };
         menu.Items.Add(top);
-        menu.Items.Add(ToggleMenuCommand("キャラクターの動き", _preferences.ReactionsEnabled, () =>
-        {
-            _preferences.ReactionsEnabled = !_preferences.ReactionsEnabled;
-            ApplyReactionSettings();
-            SavePreferences();
-        }));
+        var motion = new MenuItem { Header = "キャラクターの動き" };
+        var systemState = SystemParameters.ClientAreaAnimation ? "オン" : "オフ";
+        var enabled = _preferences.ReactionsEnabled;
+        var follow = _preferences.FollowWindowsAnimations;
+        motion.Items.Add(ToggleMenuCommand($"Windowsに合わせる（現在は{systemState}）", enabled && follow,
+            () => SetReactionPreference(enabled: true, followWindows: true)));
+        motion.Items.Add(ToggleMenuCommand("常に動かす", enabled && !follow,
+            () => SetReactionPreference(enabled: true, followWindows: false)));
+        motion.Items.Add(ToggleMenuCommand("動かさない", !enabled,
+            () => SetReactionPreference(enabled: false, followWindows: true)));
+        menu.Items.Add(motion);
         var size = new MenuItem { Header = "表示サイズ" };
         foreach (var (label, height) in new[] { ("小（120）", 120), ("中（180）", 180), ("大・標準（260）", 260) })
         {
@@ -295,6 +300,14 @@ public partial class MainWindow : Window
         };
         menu.IsOpen = true;
         RefreshReactionSuspension();
+    }
+
+    private void SetReactionPreference(bool enabled, bool followWindows)
+    {
+        _preferences.ReactionsEnabled = enabled;
+        _preferences.FollowWindowsAnimations = followWindows;
+        ApplyReactionSettings();
+        SavePreferences();
     }
 
     private static MenuItem ToggleMenuCommand(string label, bool open, Action action)

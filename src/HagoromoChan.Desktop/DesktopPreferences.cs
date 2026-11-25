@@ -15,9 +15,14 @@ internal sealed class DesktopPreferences
     public int LayoutVersion { get; set; }
     public bool Topmost { get; set; } = true;
     public bool ReactionsEnabled { get; set; } = true;
+    // Missing in older preference files, which always respected the Windows setting.
+    public bool FollowWindowsAnimations { get; set; } = true;
     public long? ObservedSequence { get; set; }
     public string? ObservedId { get; set; }
     public HashSet<string> UnreadIds { get; set; } = new(StringComparer.Ordinal);
+
+    public bool ShouldAnimate(bool systemAnimationsEnabled) =>
+        ReactionsEnabled && (!FollowWindowsAnimations || systemAnimationsEnabled);
 
     // Called only after a complete history read. A stored cursor must match the message
     // identity as well as the sequence, since a replacement database may reuse sequences.

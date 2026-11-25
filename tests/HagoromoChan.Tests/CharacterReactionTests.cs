@@ -3,6 +3,34 @@ using HagoromoChan.Desktop;
 
 internal static class CharacterReactionTests
 {
+    public static void MotionPreferences()
+    {
+        var directory = Directory.CreateTempSubdirectory("hagoromo-motion-");
+        try
+        {
+            var file = Path.Combine(directory.FullName, "desktop-ui.json");
+            var store = new DesktopPreferencesStore(directory.FullName);
+            var defaults = store.Load();
+            Check(!defaults.ShouldAnimate(false) && defaults.ShouldAnimate(true), "new installation follows Windows");
+            File.WriteAllText(file, """{"reactionsEnabled":false}""");
+            Check(!store.Load().ShouldAnimate(true), "old explicit off remains off");
+            File.WriteAllText(file, """{"reactionsEnabled":true,"screenX":71}""");
+            var settings = store.Load();
+            Check(!settings.ShouldAnimate(false) && settings.ShouldAnimate(true), "old on follows Windows");
+            settings.FollowWindowsAnimations = false;
+            store.Save(settings);
+            settings = store.Load();
+            Check(settings.ShouldAnimate(false) && settings.ShouldAnimate(true) && settings.ScreenX == 71,
+                "app-only override survives restart and preserves other settings");
+            settings.ReactionsEnabled = false;
+            Check(!settings.ShouldAnimate(false) && !settings.ShouldAnimate(true), "explicit off wins");
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
     public static void Inbox()
     {
         var inbox = new ReactionInbox();

@@ -35,7 +35,7 @@ public partial class MainWindow
     }
 
     private bool AnimationsEnabled => !_animationUnavailable && _reactionArtwork.CanAnimate
-        && _preferences.ReactionsEnabled && SystemParameters.ClientAreaAnimation;
+        && _preferences.ShouldAnimate(SystemParameters.ClientAreaAnimation);
 
     private void ApplyReactionSettings()
     {

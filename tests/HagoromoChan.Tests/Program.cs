@@ -23,6 +23,7 @@ var tests = new (string Name, Action Run)[]
     ("Initial history, partial reads and duplicate replies do not replay reactions", CharacterReactionTests.Inbox),
     ("Character reactions preserve priority, interaction suspension and expiration", CharacterReactionTests.Playback),
     ("Waiting gaze follows activity and resolves only matching replies", CharacterReactionTests.Waiting),
+    ("System, app-only and disabled motion preferences preserve prior choices", CharacterReactionTests.MotionPreferences),
     ("Desktop overlay placement and work-area bounds", DesktopUiChecks.Placement),
     ("Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
     ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
