@@ -15,6 +15,7 @@ internal sealed class BundledReactionDrawing
 
     private readonly BitmapSource[] _cells;
     private readonly BitmapSource _thinkingHead;
+    private readonly BitmapSource _thinkingEyes;
     private readonly BitmapSource _thinkingHand;
     private readonly BitmapSource[] _unreadEyes = new BitmapSource[4];
     private readonly BitmapSource _farewellHand;
@@ -49,6 +50,7 @@ internal sealed class BundledReactionDrawing
 
         _cells[(int)Pose.Thinking] = LoadLayer("MascotThinkingBody.png");
         _thinkingHead = LoadLayer("MascotThinkingHead.png");
+        _thinkingEyes = LoadLayer("MascotThinkingEyes.png");
         _thinkingHand = LoadLayer("MascotThinkingHand.png");
         _cells[(int)Pose.Farewell] = LoadLayer("MascotFarewellBody.png");
         _farewellHand = LoadLayer("MascotFarewellHand.png");
@@ -191,6 +193,8 @@ internal sealed class BundledReactionDrawing
         var tilt = new RotateTransform(degrees, neck.X, neck.Y);
         context.PushTransform(tilt);
         context.DrawImage(_thinkingHead, bounds);
+        if (ramp >= 0.375)
+            context.DrawImage(_thinkingEyes, bounds);
         context.Pop();
 
         // Track only the chin's displacement. The cuff stays within its overlap with the sleeve.
