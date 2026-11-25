@@ -145,7 +145,12 @@ internal sealed class CharacterReactionPack
 
     public BitmapSource Select(string action, double progress, double gazeX, double gazeY)
     {
-        if ((action is "waiting" or "look") && _actions.TryGetValue("look", out var directions))
+        // A legacy waiting sequence is a timed loop; look is a sheet of 16 directions.
+        if (action == "thinking" && !_actions.ContainsKey("thinking"))
+            action = _actions.ContainsKey("waiting") ? "waiting" : "look";
+        else if (action == "waiting" && _actions.ContainsKey("look"))
+            action = "look";
+        if (action == "look" && _actions.TryGetValue("look", out var directions))
             return directions[CharacterReactionArtwork.LookDirection(gazeX, gazeY)].Bitmap;
         if (action == "frozen") return _actions["idle"][0].Bitmap;
         if (!_actions.TryGetValue(action, out var frames)) frames = _actions["idle"];

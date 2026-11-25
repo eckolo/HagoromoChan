@@ -107,28 +107,35 @@ internal static class CharacterReactionTests
         var state = new CharacterReactionState();
         state.SendAccepted("own-a", 0);
         state.SendAccepted("own-a", 500);
-        var lookup = state.Sample(801);
-        Check(lookup.Pose == ReactionPose.Look && lookup.GazeX == 0 && lookup.GazeY < 0,
-            "one receipt followed by an upward gaze");
+        var thinking = state.Sample(801);
+        Check(thinking.Pose == ReactionPose.Thinking && thinking.AllowsGaze
+            && thinking.DurationMs > 0, "one receipt followed by a thinking loop that a cursor may interrupt");
         state.ObserveWindow(-240, 0, 900);
         var tracking = state.Sample(1150);
         Check(tracking.Pose == ReactionPose.Look && tracking.GazeX < -0.99 && tracking.GazeY == 0,
             "moving window to the left");
         state.ObserveWindow(double.NaN, 0, 1250);
         var relaxed = state.Sample(2900);
-        Check(relaxed.Pose == ReactionPose.Look && relaxed.GazeY == -1, "stale window direction fades");
-        Check(state.Sample(4100).Pose == ReactionPose.Idle, "break between waiting glances");
+        Check(relaxed.Pose == ReactionPose.Thinking && relaxed.ElapsedMs > thinking.ElapsedMs,
+            "thinking animation resumes at a later phase when motion ends");
+        Check(state.Sample(4100).Pose == ReactionPose.Thinking, "quiet wait keeps the thinking pose");
         state.ObserveWindow(300, 0, 4150);
         Check(state.Sample(4400).GazeX > 0.99, "motion draws attention during a resting interval");
         state.ObserveWindow(0, 0, 4400);
-        Check(state.Sample(4650).GazeY == -1, "target disappearance releases gaze without a second hold");
+        var resumed = state.Sample(4650);
+        Check(resumed.Pose == ReactionPose.Thinking && resumed.ElapsedMs == 50,
+            "target disappearance returns to thinking, cycling across the phase boundary");
 
         state.SendAccepted("own-b", 4700);
         state.Receive([Row(1, "proactive_new")], 4800);
-        Check(state.Sample(4801).Pose == ReactionPose.Jump && state.WaitingForReply,
-            "proactive messages react without settling an unrelated request");
+        var arriving = state.Sample(4801);
+        Check(arriving.Pose == ReactionPose.Jump && !arriving.AllowsGaze && state.WaitingForReply,
+            "proactive message takes priority over cursor and waiting pose");
+        Check(state.Sample(5451).Pose == ReactionPose.Thinking,
+            "unrelated proactive message finishes and thinking resumes");
         state.Receive([Row(2, "reply-b", "own-b")], 5600);
-        Check(state.WaitingForReply, "a second request remains open");
+        Check(state.WaitingForReply && state.Sample(6251).Pose == ReactionPose.Thinking,
+            "settling one of two requests resumes thinking for the remaining one");
         state.Receive([Row(3, "reply-a", "own-a")], 6300);
         Check(!state.WaitingForReply && state.Sample(7000).Pose == ReactionPose.Idle,
             "each corresponding reply settles its request");
@@ -146,8 +153,8 @@ internal static class CharacterReactionTests
         state.SetEnabled(false, 7550);
         Check(state.Sample(7600).Pose == ReactionPose.Still, "disabled stays still");
         state.SetEnabled(true, 7650);
-        Check(state.Sample(7650).Pose == ReactionPose.Look, "resume waiting without replaying acceptance");
-        Check(state.Sample(9700).GazeX > 0.25, "quiet desktop allows a brief upward side glance");
+        Check(state.Sample(7650).Pose == ReactionPose.Thinking, "resume thinking without replaying acceptance");
+        Check(state.Sample(9700).GazeX > 0.25, "direction-only fallback packs still glance aside during a wait");
     }
 
     private static ChatMessage Row(long sequence, string id, string? inReplyTo = null) =>

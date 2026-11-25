@@ -115,13 +115,14 @@ public partial class MainWindow
                 ReactionPose.Idle => "idle",
                 ReactionPose.Wave => "waving",
                 ReactionPose.Review => "review",
+                ReactionPose.Thinking => "thinking",
                 ReactionPose.Jump => "jumping",
                 ReactionPose.Failed => "failed",
                 ReactionPose.Look => "waiting",
                 _ => "frozen"
             };
-            // Cursor attention can replace a resting/waiting gaze, never a one-shot or a frozen pose.
-            if (frame.Pose is ReactionPose.Idle or ReactionPose.Look && _lastBounds is { } mascot)
+            // The cursor can interrupt quiet thinking or window tracking while an answer is pending.
+            if (frame.AllowsGaze && _lastBounds is { } mascot)
             {
                 var cursor = NativeDesktop.TryCursor();
                 var gaze = cursor is { } at ? _cursorGaze.Sample(mascot, _lastScale, at.X, at.Y, now) : null;
@@ -137,7 +138,7 @@ public partial class MainWindow
             var progress = frame.DurationMs > 0 ? (double)frame.ElapsedMs / frame.DurationMs : 0;
             var image = _reactionArtwork.Frame(action, progress, direction.X, direction.Y);
             if (!ReferenceEquals(image, MascotImage.Source)) MascotImage.Source = image;
-            var interval = frame.Pose is ReactionPose.Idle or ReactionPose.Look ? 100 : 50;
+            var interval = frame.AllowsGaze ? 100 : 50;
             if (_reactionTimer.Interval.TotalMilliseconds != interval)
                 _reactionTimer.Interval = TimeSpan.FromMilliseconds(interval);
         }

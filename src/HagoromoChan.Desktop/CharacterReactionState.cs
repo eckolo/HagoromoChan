@@ -2,10 +2,13 @@ using HagoromoChan.Contracts;
 
 namespace HagoromoChan.Desktop;
 
-internal enum ReactionPose { Still, Idle, Look, Wave, Review, Failed, Jump }
+internal enum ReactionPose { Still, Idle, Thinking, Look, Wave, Review, Failed, Jump }
 
 internal readonly record struct ReactionFrame(
-    ReactionPose Pose, long ElapsedMs, int DurationMs, double GazeX = 0, double GazeY = 0);
+    ReactionPose Pose, long ElapsedMs, int DurationMs, double GazeX = 0, double GazeY = 0)
+{
+    public bool AllowsGaze => Pose is ReactionPose.Idle or ReactionPose.Thinking or ReactionPose.Look;
+}
 
 // ReadMessagesAsync passes the sequence-ordered desktop history after its last page succeeds.
 // History may already contain rows from an earlier, incomplete read or a POST beyond the cursor.
@@ -184,12 +187,10 @@ internal sealed class CharacterReactionState
         {
             var phase = (nowMs - _waitingSince) % WaitingCycleMs;
             var watching = _windowMoved is long moved && nowMs - moved < GazeHoldMs + GazeTransitionMs;
-            // Briefly relax between glances. A newly moving window always draws the gaze.
-            if (watching || phase < WaitingCycleMs - 800)
-            {
-                var gaze = GazeAt(nowMs);
-                return new(ReactionPose.Look, phase, WaitingCycleMs, gaze.X, gaze.Y);
-            }
+            var gaze = GazeAt(nowMs);
+            // Keep the thinking loop's phase while a moving window briefly draws attention.
+            return new(watching ? ReactionPose.Look : ReactionPose.Thinking,
+                phase, WaitingCycleMs, gaze.X, gaze.Y);
         }
         return new(ReactionPose.Idle, nowMs % 1000, 1000);
     }
@@ -198,7 +199,7 @@ internal sealed class CharacterReactionState
     {
         var cycle = (nowMs - _waitingSince) / WaitingCycleMs;
         var phase = (nowMs - _waitingSince) % WaitingCycleMs;
-        // A small sideways glance once per cycle keeps a quiet desktop from looking frozen.
+        // Understated motion for legacy direction-only packs while the desktop is quiet.
         var aside = phase is >= 1500 and < 2600
             ? 0.28 * Math.Sin(Math.PI * (phase - 1500) / 1100) : 0;
         var upX = cycle % 2 == 0 ? aside : -aside;
