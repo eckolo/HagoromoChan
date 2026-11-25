@@ -125,12 +125,11 @@ internal sealed class BundledReactionDrawing
             context.DrawRectangle(Brushes.Transparent, null, _canvas);
             if (pose == Pose.Thinking)
             {
-                // Keep both soles on the shared baseline while the shoulders breathe and sway.
-                var angle = step * Math.Tau / ThinkingSteps;
-                var sway = .006 * Math.Sin(angle);
-                var breath = .004 * (1 - Math.Cos(angle));
+                // A rigid tilt keeps the face and fingertip together around the midpoint of the soles.
+                var degrees = 0.45 * Math.Sin(step * Math.Tau / ThinkingSteps);
+                var footX = left + width / 2;
                 var footY = top + height * 360 / 368;
-                context.PushTransform(new MatrixTransform(1, 0, sway, 1 - breath, -sway * footY, breath * footY));
+                context.PushTransform(new RotateTransform(degrees, footX, footY));
             }
             context.DrawImage(cell, new Rect(left, top, width, height));
             if (pose == Pose.Thinking) context.Pop();
