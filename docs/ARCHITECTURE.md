@@ -10,7 +10,7 @@
 | [Contracts](../src/HagoromoChan.Contracts/) | Desktop と Relay の間のメッセージ・状態データ形式 |
 | [Relay](../src/HagoromoChan.Relay/) | ASP.NET Core / SQLite、発言・返信・購読・送信待ちの保存、MCP とイベント配信 |
 | Secure MCP Tunnel / tunnel-client | ChatGPT クラウドからローカルの stdio アダプターへの公式接続。別プロセス |
-| ChatGPT Dot | イベントを購読して依頼に応答し、返信ツールに本文を渡す |
+| ChatGPT Dot | イベントを購読して依頼に応答し、返信ツールまたは独立発言ツールに本文を渡す |
 | [Tests](../tests/HagoromoChan.Tests/) | 永続化、重複処理、MCP 等の回帰検証 |
 
 ```mermaid
@@ -26,7 +26,7 @@ flowchart LR
 ## 現行の責務・制約
 
 - Desktop は OpenAI 固有のイベント送信・署名を直接扱わない。外部プロトコル関連の処理は Relay に配置する。
-- Relay は既存の単一チャンネル `hagoromo-mini` を扱い、依頼 ID と返信 ID を対応付ける。MCP ツールは `get_context` と `reply`、イベントは `message.created`。
+- Relay は既存の単一チャンネル `hagoromo-mini` を扱い、依頼 ID と返信 ID を対応付ける。MCP ツールは `get_context`、`reply`、`send_message`、イベントは `message.created`。
 - ローカル中継はループバックとローカル接続キーで保護し、会話データや認証情報はリポジトリ外に置く。
 - HTTP 受領、Dot の実際の応答、Desktop の表示は異なる段階であり、同一の成功状態とみなさない。
 - この連携で取得できるのは返信ツール等で明示的に渡された内容であり、公式会話の全履歴や未登録会話の全回答を自動同期する仕様ではない。
@@ -36,3 +36,9 @@ flowchart LR
 ## M08 管理実行環境（v1.0.4）
 
 単一の [Launcher](../src/HagoromoChan.Launcher/) が Desktop、Relay、公式トンネルとstdioのプロセス寿命を管理する。起動・停止・更新と通常の送受信を分離する。詳細は [M08設計](design/M08-runtime-management.md)・[実機確認](operations/M08-verification.md)。通常の管理起動・会話往復のユーザー実機成功報告とv1.0.4の全般的な受入に基づき統合する。異常系・ログオン等の個別未検査は検証手順とM08個別記録に維持する。
+
+## M04 能動発言（v1.0）
+
+対応するWindows側依頼のない発言を `send_message(channel_id, message_id, text)` で受け取り、既存SQLite schema v2へ `proactive_` + UUIDのIDで保存する。roleはassistant、in_reply_toはnull、内部request_idは専用名前空間のIDであり、実際のユーザー依頼やoutboxを作成しない。既存のreplyは元の依頼との関連付けを維持する。Desktopは既存のポーリング、履歴・新着機構で双方を受信し、能動発言を履歴見出しで区別する。M09との結合に利用するChatMessageの公開契約は変更していない。
+
+詳細は [M04設計](design/M04-proactive-messages.md) と [実機確認](operations/M04-verification.md)。対応するWindows依頼のない能動発言の受信・会話継続と回帰35/35の成功報告に基づき統合する。日次定例の無操作実行は完了判定外であり、未確認の実行・再配送を保証しない。購読障害復旧はM06、演出連携はM09の対象とする。

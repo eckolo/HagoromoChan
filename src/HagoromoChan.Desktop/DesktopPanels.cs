@@ -572,7 +572,9 @@ internal sealed class DesktopPanels
             var pages = Pages(p.Message);
             var slice = pages[p.Page];
             var user = message.Role == "user";
-            var role = user ? "あなた" : message.Role == "assistant" ? "羽衣ちゃん" : "お知らせ";
+            var role = user ? "あなた" : message.Role == "assistant"
+                ? message.InReplyTo is null ? "羽衣ちゃん・自発" : "羽衣ちゃん"
+                : "お知らせ";
             var title = $"{role}　{message.CreatedAt.LocalDateTime:M/d HH:mm}";
             if (pages.Count > 1) title += $"　{p.Page + 1}/{pages.Count}";
             var header = new DockPanel { Height = 27, Margin = new Thickness(0, 0, 0, 3) };
