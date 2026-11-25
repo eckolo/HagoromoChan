@@ -9,9 +9,8 @@ using HagoromoChan.Contracts;
 
 namespace HagoromoChan.Desktop;
 
-// A single conversation surface contains the history stack and the editable draft.
-// Its lower edge is anchored to a content-independent work-area zone. The controls
-// at that edge stay in place even when the number or height of bubbles changes.
+// Independently requested panels share a transparent conversation surface.
+// Stable native bounds and retained history cards avoid recreating the visible stack.
 internal sealed class DesktopPanels
 {
     private const double NavHeight = 44;
@@ -36,8 +35,7 @@ internal sealed class DesktopPanels
     private readonly Button _draftNext = ActionButton("↓");
     private readonly RepeatButton _older = Repeat("↑");
     private readonly RepeatButton _newer = Repeat("↓");
-    private readonly Button _latest = ActionButton("最新");
-    private readonly Button _inputToggle = ActionButton("入力");
+    private readonly Border _navFrame;
     private readonly Button _closeConversation = ActionButton("×");
     private readonly TextBlock _historyUnavailable = Label("入力を閉じると履歴を表示できます。", 12);
     private readonly TextBox _probe = BodyBox();
@@ -45,14 +43,11 @@ internal sealed class DesktopPanels
     private readonly Dictionary<string, IReadOnlyList<TextSlice>> _historyPages = new(StringComparer.Ordinal);
     private readonly StackPanel _statusContent = new();
     private readonly Action<string> _markRead;
-    private readonly Action _openUnread;
-    private readonly Action _dismissAll;
-    private readonly Action _openComposer;
     private bool _attached;
     private bool _closing;
     private bool _arranging;
     private bool _arrangeQueued;
-    private bool _composerOpen;
+    private ConversationVisibility _visibility;
     private bool _composing;
     private bool _assigningDraft;
     private string _draft = "";
@@ -71,20 +66,25 @@ internal sealed class DesktopPanels
     private double _historyWidth;
     private double _historyMaximum;
     private OverlaySide _side = OverlaySide.Right;
-    private string _renderKey = "";
+    private readonly List<HistoryCardKey> _renderedKeys = [];
+    private readonly Dictionary<HistoryCardKey, DockPanel> _cards = [];
+    private readonly record struct HistoryCardKey(string Id, int Start, int Length, double Height,
+        int Page, int PageCount, double Width, OverlaySide Side, bool Unread);
     private DockPanel? _composerBubble;
 
     public Window Hover { get; }
     public Window Conversation { get; }
     public Window Status { get; }
-    public bool ConversationOpen => Wants(Conversation);
-    public bool ComposerOpen => ConversationOpen && _composerOpen;
+    public bool ConversationOpen => _visibility.Any;
+    public bool ComposerOpen => _visibility.Input;
+    public bool HistoryOpen => _visibility.History;
+    public bool StatusNeedsAlternateAccess => Wants(Status) && !Status.IsVisible;
     public string DraftText => _draft;
     public event Action? VisibilityChanged;
     public event Action? DraftChanged;
 
     public TextBox MessageInput { get; } = BodyBox();
-    public Button SendButton { get; } = ActionButton("送信");
+    public Button SendButton { get; } = ActionButton("➤");
     public TextBlock SendFeedbackText { get; } = Label("", 12);
     public TextBlock ConnectionText { get; } = Label("接続を確認しています", 12);
     public Ellipse ConnectionIndicator { get; } = new()
@@ -98,18 +98,15 @@ internal sealed class DesktopPanels
     public Button OpenInputButton { get; } = ActionButton("入力");
     public Button UnreadButton { get; } = ActionButton("新着");
 
-    public DesktopPanels(Window owner, Action openComposer, Action openHistory,
-        Action openSettings, Action dismissAll, Action openUnread, Action<string> markRead)
+    public DesktopPanels(Window owner, Action toggleComposer, Action toggleHistory,
+        Action openSettings, Action dismissAll, Action openUnread, Action<string> markRead, Action openComposer)
     {
         _owner = owner;
-        _openComposer = openComposer;
         _markRead = markRead;
-        _openUnread = openUnread;
-        _dismissAll = dismissAll;
 
         var hoverRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        hoverRow.Children.Add(ActionButton("会話", openComposer));
-        hoverRow.Children.Add(ActionButton("履歴", openHistory));
+        hoverRow.Children.Add(ActionButton("会話", toggleComposer));
+        hoverRow.Children.Add(ActionButton("履歴", toggleHistory));
         hoverRow.Children.Add(ActionButton("設定", openSettings));
         Hover = Surface("操作", Frame(hoverRow, AssistantPaper, 5), () => SetVisible(Hover!, false));
 
@@ -124,7 +121,7 @@ internal sealed class DesktopPanels
                 _draftCaret = _draftSlice.Start + Math.Clamp(MessageInput.CaretIndex, 0, MessageInput.Text.Length);
         };
         SendButton.IsEnabled = false;
-        SendButton.ToolTip = "Ctrl+Enterで送信、Enterで改行";
+        DescribeButton(SendButton, "送信（Ctrl+Enter）、Enterで改行");
         SendButton.Background = ColorBrush(0xCFDFC8);
         SendFeedbackText.Foreground = ColorBrush(0x8F4F2C);
         SendFeedbackText.Visibility = Visibility.Collapsed;
@@ -134,8 +131,8 @@ internal sealed class DesktopPanels
         _composerBody.Children.Add(MessageInput);
         var draftFooter = new Grid { Height = 34, Margin = new Thickness(0, 5, 0, 0) };
         AddColumns(draftFooter, 30, 30, -1, 84);
-        _draftPrevious.ToolTip = "下書きの前ページ";
-        _draftNext.ToolTip = "下書きの次ページ";
+        DescribeButton(_draftPrevious, "下書きの前ページ");
+        DescribeButton(_draftNext, "下書きの次ページ");
         _draftPrevious.Click += (_, _) => MoveDraft(-1);
         _draftNext.Click += (_, _) => MoveDraft(1);
         Put(draftFooter, _draftPrevious, 0);
@@ -148,38 +145,37 @@ internal sealed class DesktopPanels
         Put(draftFooter, SendButton, 3);
         _composerBody.Children.Add(draftFooter);
 
-        _older.ToolTip = "上へ：ひとつ前の発言・ページを追加";
-        _newer.ToolTip = "下へ：最も古い表示を外す／次ページ";
-        _latest.ToolTip = "最初の未読、または最新の発言へ";
-        _inputToggle.ToolTip = "入力欄の表示・非表示";
-        _closeConversation.ToolTip = "すべての吹き出しを閉じる（未読・下書きは保持）";
+        DescribeButton(_older, "上へ：ひとつ前の発言・ページを追加");
+        DescribeButton(_newer, "下へ：最も古い表示を外す／次ページ");
+        DescribeButton(_closeConversation, "すべての吹き出しを閉じる（未読・下書きは保持）");
         _older.Click += (_, _) => MoveHistory(-1);
         _newer.Click += (_, _) => MoveHistory(1);
-        _latest.Click += (_, _) => _openUnread();
-        _inputToggle.Click += (_, _) =>
+        _closeConversation.Click += (_, _) => dismissAll();
+        var navigation = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        foreach (var button in new ButtonBase[] { _older, _newer, _closeConversation })
         {
-            if (_composerOpen) CloseComposer();
-            else _openComposer();
-        };
-        _closeConversation.Click += (_, _) => _dismissAll();
-        var navigation = new Grid { Height = NavHeight - 12 };
-        AddStarColumns(navigation, 0.7, 0.7, 1.7, 1.3, 0.65);
-        Put(navigation, _older, 0);
-        Put(navigation, _newer, 1);
-        Put(navigation, _latest, 2);
-        Put(navigation, _inputToggle, 3);
-        Put(navigation, _closeConversation, 4);
-        var navFrame = Frame(navigation, AssistantPaper, 5);
-        navFrame.Height = NavHeight;
+            button.Width = 32;
+            button.Height = 30;
+            button.Padding = new Thickness(0);
+            button.FontSize = 17;
+            button.FontFamily = new FontFamily("Segoe UI Symbol, Yu Gothic UI");
+            button.Background = ColorBrush(0x415267);
+            button.Foreground = White;
+            navigation.Children.Add(button);
+        }
+        _navFrame = Frame(navigation, Dark, 4);
+        _navFrame.BorderBrush = ColorBrush(0x53657A);
+        _navFrame.Width = 118;
+        _navFrame.Height = NavHeight;
         _conversationRoot.Children.Add(_historyStack);
         _historyUnavailable.Visibility = Visibility.Collapsed;
         _conversationRoot.Children.Add(_historyUnavailable);
-        _conversationRoot.Children.Add(navFrame);
+        _conversationRoot.Children.Add(_navFrame);
         _conversationRoot.VerticalAlignment = VerticalAlignment.Bottom;
         Conversation = Surface("会話", _conversationRoot, dismissAll);
         Conversation.PreviewMouseWheel += (_, e) =>
         {
-            if (_history.Length == 0 || _composing)
+            if (!HistoryOpen || _history.Length == 0 || _composing)
                 return;
             _wheelRemainder += e.Delta;
             while (Math.Abs(_wheelRemainder) >= 120)
@@ -214,8 +210,7 @@ internal sealed class DesktopPanels
         actions.Children.Add(RelayRetryButton);
         actions.Children.Add(OpenInputButton);
         actions.Children.Add(UnreadButton);
-        actions.Children.Add(ActionButton("詳細コピー", () => Copy(string.Join(Environment.NewLine,
-            new[] { ConnectionText.Text, QueueText.Text, ConnectionErrorText.Text, StatusDetail.Text }))));
+        actions.Children.Add(SymbolButton("⧉", "状態の詳細をコピー", CopyStatus));
         _statusContent.Children.Add(actions);
         Status = Surface("通知・状態", Frame(_statusContent, Dark, 8), () => SetVisible(Status!, false));
         _windows = [Hover, Conversation, Status];
@@ -248,22 +243,27 @@ internal sealed class DesktopPanels
     public void HideSurfaces()
     {
         _requested.Clear();
-        _composerOpen = false;
+        _visibility = default;
         _wheelRemainder = 0;
         foreach (var window in _windows)
             HideIfVisible(window);
         VisibilityChanged?.Invoke();
     }
 
-    public void Open(string? messageId, bool composer, bool activate)
+    private void SetConversation(ConversationVisibility visibility, bool activate, string? messageId = null)
     {
+        if (_closing) return;
+        // Preserve an active IME composition when toggling only the input.
+        if (_composing && ComposerOpen && !visibility.Input) return;
         var wasOpen = ConversationOpen;
         if (messageId is not null)
             SetAnchor(messageId, 0);
-        else if (!wasOpen || _anchorId is null)
+        else if (visibility.History && (!wasOpen || _anchorId is null))
             SelectLatest();
-        _composerOpen = composer;
-        _requested.Add(Conversation);
+
+        _visibility = visibility;
+        if (visibility.Any) _requested.Add(Conversation);
+        else _requested.Remove(Conversation);
         Arrange();
         VisibilityChanged?.Invoke();
         if (activate && ComposerOpen && Conversation.IsVisible)
@@ -273,30 +273,31 @@ internal sealed class DesktopPanels
         }
     }
 
-    public void FocusInput() => Open(null, true, true);
+    public void OpenBoth() => SetConversation(new ConversationVisibility(true, true), true);
 
-    public void FocusHistory() => Open(null, false, false);
+    public void ToggleInput() => SetConversation(_visibility.ToggleInput(), !ComposerOpen);
 
-    public void CloseComposer()
-    {
-        if (_composing) return;
-        _composerOpen = false;
-        Arrange();
-        VisibilityChanged?.Invoke();
-    }
+    public void ToggleHistory() => SetConversation(_visibility.ToggleHistory(), false);
 
-    public void ShowMessage(string id)
-    {
-        Open(id, ComposerOpen, false);
-    }
+    public void FocusInput() => SetConversation(_visibility with { Input = true }, true);
+
+    public void CloseComposer() => SetConversation(_visibility with { Input = false }, false);
+
+    // Receiving a reply opens history, never forces the input open or closed.
+    public void ShowMessage(string id) => SetConversation(_visibility with { History = true }, false, id);
+
+    public void CopyStatus() => Copy(string.Join(Environment.NewLine,
+        new[] { ConnectionText.Text, QueueText.Text, ConnectionErrorText.Text, StatusDetail.Text }));
 
     public void UpdateHistory(IReadOnlyList<ChatMessage> messages, IEnumerable<string> unread)
     {
+        var unreadSet = unread.ToHashSet(StringComparer.Ordinal);
+        if (_history.SequenceEqual(messages) && _unread.SetEquals(unreadSet))
+            return;
         _history = messages.ToArray();
-        _unread = unread.ToHashSet(StringComparer.Ordinal);
+        _unread = unreadSet;
         if (_anchorId is null || !_history.Any(m => m.Id == _anchorId))
             SelectLatest();
-        _latest.Content = _unread.Count == 0 ? "最新" : $"新着 {_unread.Count}";
         UnreadButton.Content = $"新着 {_unread.Count}";
         UnreadButton.Visibility = _unread.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (ConversationOpen)
@@ -442,15 +443,8 @@ internal sealed class DesktopPanels
 
     private void MoveHistory(int direction)
     {
-        if (_composing || _history.Length == 0 || !ConversationOpen)
+        if (_composing || _history.Length == 0 || !HistoryOpen || _historyMaximum <= 0)
             return;
-        if (_historyMaximum <= 0 && _composerOpen)
-        {
-            _composerOpen = false;
-            Arrange();
-            VisibilityChanged?.Invoke();
-        }
-        if (_historyMaximum <= 0) return;
         var current = Position();
         if (current is not { } position) return;
         var next = direction < 0
@@ -459,6 +453,15 @@ internal sealed class DesktopPanels
         if (next is not { } target) return;
         SetAnchor(_history[target.Message].Id, Pages(target.Message)[target.Page].Start);
         Arrange();
+        VisibilityChanged?.Invoke();
+    }
+
+    private void ClearHistory()
+    {
+        if (_renderedKeys.Count == 0) return;
+        _historyStack.Children.Clear();
+        _renderedKeys.Clear();
+        _cards.Clear();
     }
 
     private void RenderHistory(double width, double available, OverlaySide side)
@@ -468,14 +471,13 @@ internal sealed class DesktopPanels
         var bodyWidth = Math.Max(36, width - 42);
         var minimum = Math.Max(44, MeasureText("あ😀", bodyWidth));
         var maximum = Math.Floor(available - chrome);
-        if (maximum < minimum || _history.Length == 0)
+        if (!HistoryOpen || maximum < minimum || _history.Length == 0)
         {
-            _historyStack.Children.Clear();
-            _renderKey = "";
+            ClearHistory();
             _historyMaximum = 0;
-            _historyUnavailable.Visibility = _history.Length != 0 && _composerOpen
+            _historyUnavailable.Visibility = HistoryOpen && _history.Length != 0 && ComposerOpen
                 ? Visibility.Visible : Visibility.Collapsed;
-            _older.IsEnabled = _newer.IsEnabled = _history.Length != 0 && _composerOpen;
+            _older.IsEnabled = _newer.IsEnabled = false;
             return;
         }
 
@@ -492,17 +494,40 @@ internal sealed class DesktopPanels
         _newer.IsEnabled = HistoryNavigation.Newer(first, _history.Length, i => Pages(i).Count) is not null;
         var visible = HistoryNavigation.Fit(first, _history.Length, i => Pages(i).Count,
             p => Pages(p.Message)[p.Page].Height + chrome, available);
-        var key = string.Join("|", visible.Select(p =>
+        var desired = visible.Select(position =>
         {
-            var message = _history[p.Message];
-            var page = Pages(p.Message)[p.Page];
-            return $"{message.Id}:{page.Start}:{page.Length}:{page.Height}:{p.Page}:{Pages(p.Message).Count}:{_unread.Contains(message.Id)}";
-        })) + $"/{width}/{side}/{chrome}";
-        if (key == _renderKey) return;
-        _renderKey = key;
-        _historyStack.Children.Clear();
-        foreach (var p in visible)
+            var message = _history[position.Message];
+            var pages = Pages(position.Message);
+            var page = pages[position.Page];
+            return (Position: position, Key: new HistoryCardKey(message.Id, page.Start, page.Length,
+                page.Height, position.Page, pages.Count, width, side, _unread.Contains(message.Id)));
+        }).ToArray();
+        var keys = desired.Select(item => item.Key).ToArray();
+        var positions = desired.ToDictionary(item => item.Key, item => item.Position);
+        // Only insert/remove changed cards. Retain surviving UIElements and selection.
+        foreach (var edit in RetainedSequence.Plan(_renderedKeys, keys))
         {
+            if (edit.Remove)
+            {
+                _historyStack.Children.RemoveAt(edit.Index);
+                _renderedKeys.RemoveAt(edit.Index);
+                continue;
+            }
+            if (!_cards.TryGetValue(edit.Item, out var card))
+            {
+                card = BuildHistoryCard(positions[edit.Item], bodyWidth, side, chrome);
+                _cards.Add(edit.Item, card);
+            }
+            _historyStack.Children.Insert(edit.Index, card);
+            _renderedKeys.Insert(edit.Index, edit.Item);
+        }
+        var retained = keys.ToHashSet();
+        foreach (var key in _cards.Keys.Where(key => !retained.Contains(key)).ToArray())
+            _cards.Remove(key);
+    }
+
+    private DockPanel BuildHistoryCard(HistoryPosition p, double bodyWidth, OverlaySide side, double chrome)
+    {
             var message = _history[p.Message];
             var pages = Pages(p.Message);
             var slice = pages[p.Page];
@@ -511,14 +536,12 @@ internal sealed class DesktopPanels
             var title = $"{role}　{message.CreatedAt.LocalDateTime:M/d HH:mm}";
             if (pages.Count > 1) title += $"　{p.Page + 1}/{pages.Count}";
             var header = new DockPanel { Height = 27, Margin = new Thickness(0, 0, 0, 3) };
-            var copy = ActionButton("コピー", () => Copy(message.Text));
-            copy.FontSize = 11;
+            var copy = SymbolButton("⧉", "この発言の全文をコピー", () => Copy(message.Text));
             DockPanel.SetDock(copy, Dock.Right);
             header.Children.Add(copy);
             if (_unread.Contains(message.Id))
             {
-                var read = ActionButton("既読", () => _markRead(message.Id));
-                read.FontSize = 11;
+                var read = SymbolButton("✓", "この回答を既読にする", () => _markRead(message.Id));
                 DockPanel.SetDock(read, Dock.Right);
                 header.Children.Add(read);
             }
@@ -539,8 +562,7 @@ internal sealed class DesktopPanels
             var bubble = Bubble(content, user ? UserPaper : AssistantPaper, user ? Opposite(side) : side);
             bubble.Height = slice.Height + chrome - Gap;
             bubble.Margin = new Thickness(0, 0, 0, Gap);
-            _historyStack.Children.Add(bubble);
-        }
+            return bubble;
     }
 
     private double MeasureText(string text, double width)
@@ -578,10 +600,9 @@ internal sealed class DesktopPanels
             var anchor = NativeDesktop.Bounds(_owner);
             int Px(double dip) => Math.Max(1, (int)Math.Ceiling(dip * scale));
             var gap = Px(8);
-            var used = new List<ScreenRect> { anchor };
+            var zone = OverlayLayout.ConversationZone(area, anchor, scale);
             if (ConversationOpen)
             {
-                var zone = OverlayLayout.ConversationZone(area, anchor, scale);
                 _side = zone.Side;
                 var width = zone.Bounds.Width / scale;
                 var maxHeight = zone.Bounds.Height / scale;
@@ -590,14 +611,13 @@ internal sealed class DesktopPanels
                 var composerChrome = vertical ? 84.0 : 72.0;
                 var composerHeight = 0.0;
                 var available = Math.Max(0, maxHeight - NavHeight - 2);
-                if (_composerOpen)
+                if (ComposerOpen)
                 {
                     // Keep room for history on normal screens; on narrow work areas
-                    // the input/history toggle provides the full area to one view.
+                    // the independent context-menu toggles make room for one view.
                     var minimumLine = Math.Max(44, MeasureText("あ😀", bodyWidth));
                     if (available < composerChrome + minimumLine)
                     {
-                        _composerOpen = false;
                         if (_composerBubble is not null)
                             _composerBubble.Visibility = Visibility.Collapsed;
                     }
@@ -608,7 +628,7 @@ internal sealed class DesktopPanels
                             var feedback = SendFeedbackText.Visibility == Visibility.Visible
                                 ? Math.Min(38.0, Math.Max(0, available - composerChrome - minimumLine)) : 0;
                             SendFeedbackText.MaxHeight = feedback;
-                            var cap = _history.Length == 0 || available < 320
+                            var cap = !HistoryOpen || _history.Length == 0 || available < 320
                                 ? available
                                 : Math.Max(130, available * .34);
                             cap = Math.Min(available, Math.Max(cap, composerChrome + feedback + minimumLine));
@@ -631,13 +651,11 @@ internal sealed class DesktopPanels
                         {
                             // Never discard or clip a draft that cannot fit this monitor.
                             // The full buffer is kept; the user can reopen it in a larger area.
-                            _composerOpen = false;
                             composerHeight = 0;
                             if (_composerBubble is not null)
                                 _composerBubble.Visibility = Visibility.Collapsed;
                             SendFeedbackText.Text = "入力を表示できる領域を確保してから開き直してください。下書きは保持しています。";
                             SendFeedbackText.Visibility = Visibility.Visible;
-                            RequestArrange();
                         }
                     }
                 }
@@ -648,7 +666,7 @@ internal sealed class DesktopPanels
                 // Reserve the small fallback hint only when it can fit.
                 try
                 {
-                    _historyUnavailable.Text = "入力を閉じると履歴を表示できます。";
+                    _historyUnavailable.Text = "右クリックで入力を閉じると履歴を表示できます。";
                     RenderHistory(width, historyRoom, _side);
                 }
                 catch (InvalidOperationException)
@@ -656,8 +674,7 @@ internal sealed class DesktopPanels
                     // No text may be silently clipped to a page that is physically
                     // too small. Retain the original messages and allow a larger
                     // work area / history-only mode to reflow them.
-                    _historyStack.Children.Clear();
-                    _renderKey = "";
+                    ClearHistory();
                     _historyPages.Clear();
                     _historyMaximum = 0;
                     _historyUnavailable.Text = "本文が収まる表示領域を確保してください。";
@@ -666,43 +683,51 @@ internal sealed class DesktopPanels
                 }
                 if (_historyUnavailable.Visibility == Visibility.Visible && historyRoom < 24)
                     _historyUnavailable.Visibility = Visibility.Collapsed;
-                _inputToggle.Content = _composerOpen ? "履歴のみ" : "入力";
-                _latest.IsEnabled = _history.Length > 0;
+                _navFrame.HorizontalAlignment = _side == OverlaySide.Left ? HorizontalAlignment.Right
+                    : _side == OverlaySide.Right ? HorizontalAlignment.Left : HorizontalAlignment.Center;
                 _conversationRoot.Width = width;
-                _conversationRoot.Measure(new Size(width, double.PositiveInfinity));
-                var actualHeight = Math.Min(zone.Bounds.Height, Px(_conversationRoot.DesiredSize.Height));
-                Conversation.Width = width;
-                Conversation.Height = actualHeight / scale;
-                var bounds = new ScreenRect(zone.Bounds.X, zone.Bounds.Bottom - actualHeight,
-                    zone.Bounds.Width, actualHeight);
-                ShowAt(Conversation, bounds);
-                // Anchor the native bottom edge as well, including DPI rounding.
-                var actual = NativeDesktop.Bounds(Conversation);
-                NativeDesktop.Move(Conversation, bounds.X, zone.Bounds.Bottom - actual.Height);
-                used.Add(new ScreenRect(bounds.X, zone.Bounds.Bottom - actual.Height, actual.Width, actual.Height));
+                // Bottom-aligned content inside a fixed transparent surface.
+                // Do not resize/reposition a layered HWND for every history navigation.
+                ShowAt(Conversation, zone.Bounds);
             }
             else HideIfVisible(Conversation);
 
-            if (Wants(Hover))
-            {
-                var width = Math.Min(220, area.Width / scale);
-                Hover.Width = width;
-                Hover.Height = 46;
-                var bounds = FreePosition(area, anchor, Px(width), Px(46), gap, OverlaySide.Above, used);
-                ShowAt(Hover, bounds);
-                used.Add(bounds);
-            }
-            else HideIfVisible(Hover);
-
+            // Reserve the same local conversation zone and hover slot regardless
+            // of their visibility. Never search remote corners of the work area.
+            var reserved = new List<ScreenRect> { zone.Bounds };
+            var hoverWidth = OverlayLayout.AuxiliaryWidth(area, zone, Px(220), Px(150), gap);
+            var hoverHeight = Math.Min(area.Height, Px(46));
+            var hover = OverlayLayout.NearbyAuxiliary(area, anchor, hoverWidth, hoverHeight, gap,
+                OverlaySide.Above, reserved);
+            hover ??= OverlayLayout.NearbyAuxiliary(area, anchor, hoverWidth, hoverHeight, gap,
+                OverlaySide.Above, []);
+            if (hover is { } hoverSlot)
+                reserved.Add(hoverSlot);
+            ScreenRect? status = null;
             if (Wants(Status))
             {
-                var width = Math.Min(300, area.Width / scale);
-                Status.Width = width;
-                _statusContent.Measure(new Size(Math.Max(1, width - 18), double.PositiveInfinity));
-                var height = Math.Min(area.Height / scale, Math.Max(46, _statusContent.DesiredSize.Height + 18));
-                Status.Height = height;
-                ShowAt(Status, FreePosition(area, anchor, Px(width), Px(height), gap, OverlaySide.Below, used));
+                var statusWidth = OverlayLayout.AuxiliaryWidth(area, zone, Px(300), Px(155), gap);
+                _statusContent.Measure(new Size(Math.Max(1, statusWidth / scale - 18), double.PositiveInfinity));
+                var statusHeight = Math.Min(area.Height, Px(Math.Max(46, _statusContent.DesiredSize.Height + 18)));
+                status = OverlayLayout.NearbyAuxiliary(area, anchor, statusWidth, statusHeight, gap,
+                    OverlaySide.Below, reserved, hover);
+                if (status is null)
+                {
+                    // Permit the conversation zone as a last local fallback.
+                    IReadOnlyList<ScreenRect> occupied = hover is { } h ? [h] : [];
+                    status = OverlayLayout.NearbyAuxiliary(area, anchor, statusWidth, statusHeight, gap,
+                        OverlaySide.Below, occupied, hover);
+                }
+                // If both auxiliary surfaces cannot coexist, prioritize state/error
+                // access; the context menu still exposes the hover commands.
+                status ??= OverlayLayout.NearbyAuxiliary(area, anchor, statusWidth, statusHeight, gap,
+                    OverlaySide.Below, []);
             }
+            if (Wants(Hover) && hover is { } hoverBounds &&
+                (status is not { } occupiedStatus || !OverlayLayout.Intersects(hoverBounds, occupiedStatus)))
+                ShowAt(Hover, hoverBounds);
+            else HideIfVisible(Hover);
+            if (status is { } statusBounds) ShowAt(Status, statusBounds);
             else HideIfVisible(Status);
         }
         finally { _arranging = false; }
@@ -745,35 +770,31 @@ internal sealed class DesktopPanels
         _ = NativeDesktop.Handle(window);
         if ((window == Hover || window == Status) && _hooked.Add(window))
             NativeDesktop.PreventMouseActivation(window);
+        if (window.IsVisible)
+        {
+            // Do not force UpdateLayout or resize/move an unchanged surface on every poll.
+            if (NativeDesktop.Bounds(window) == rect) return;
+            NativeDesktop.SetBounds(window, rect);
+            var dpi = NativeDesktop.Scale(window);
+            if (Math.Abs(window.Width - rect.Width / dpi) > .001) window.Width = rect.Width / dpi;
+            if (Math.Abs(window.Height - rect.Height / dpi) > .001) window.Height = rect.Height / dpi;
+            NativeDesktop.SetBounds(window, rect);
+            return;
+        }
+
         NativeDesktop.Move(window, rect.X, rect.Y);
-        if (!window.IsVisible) window.Show();
-        window.UpdateLayout();
-        NativeDesktop.Move(window, rect.X, rect.Y);
+        var scale = NativeDesktop.Scale(window);
+        window.Width = rect.Width / scale;
+        window.Height = rect.Height / scale;
+        NativeDesktop.SetBounds(window, rect);
+        window.Show();
+        // Show and initial DPI adjustment can modify the native bounds.
+        NativeDesktop.SetBounds(window, rect);
     }
 
     private static void HideIfVisible(Window window)
     {
         if (window.IsVisible) window.Hide();
-    }
-
-    private static bool Intersects(ScreenRect a, ScreenRect b) =>
-        a.X < b.Right && a.Right > b.X && a.Y < b.Bottom && a.Bottom > b.Y;
-
-    private static ScreenRect FreePosition(ScreenRect area, ScreenRect anchor, int width, int height,
-        int gap, OverlaySide preferred, IReadOnlyList<ScreenRect> used)
-    {
-        foreach (var side in new[] { preferred, OverlaySide.Right, OverlaySide.Left, OverlaySide.Above, OverlaySide.Below }.Distinct())
-        {
-            var candidate = OverlayLayout.Place(area, anchor, width, height, gap, side).Bounds;
-            if (used.All(item => !Intersects(candidate, item))) return candidate;
-        }
-        foreach (var point in new[] { (area.X, area.Y), (area.Right - width, area.Y),
-            (area.X, area.Bottom - height), (area.Right - width, area.Bottom - height) })
-        {
-            var candidate = OverlayLayout.Clamp(area, new ScreenRect(point.Item1, point.Item2, width, height));
-            if (used.All(item => !Intersects(candidate, item))) return candidate;
-        }
-        return OverlayLayout.Place(area, anchor, width, height, gap, preferred).Bounds;
     }
 
     private static OverlaySide Opposite(OverlaySide side) => side switch
@@ -796,6 +817,8 @@ internal sealed class DesktopPanels
 
     private static void SetTail(DockPanel root, OverlaySide side)
     {
+        if (root.Tag is OverlaySide previous && previous == side) return;
+        root.Tag = side;
         var tail = (Polygon)root.Children[0];
         tail.HorizontalAlignment = HorizontalAlignment.Center;
         tail.VerticalAlignment = VerticalAlignment.Center;
@@ -867,6 +890,23 @@ internal sealed class DesktopPanels
         return button;
     }
 
+    private static Button SymbolButton(string symbol, string description, Action? action = null)
+    {
+        var button = ActionButton(symbol, action);
+        button.FontFamily = new FontFamily("Segoe UI Symbol, Yu Gothic UI");
+        button.FontSize = 15;
+        button.Width = 32;
+        button.Padding = new Thickness(0);
+        DescribeButton(button, description);
+        return button;
+    }
+
+    private static void DescribeButton(ButtonBase button, string description)
+    {
+        button.ToolTip = description;
+        System.Windows.Automation.AutomationProperties.SetName(button, description);
+    }
+
     private static RepeatButton Repeat(string text)
     {
         var button = new RepeatButton { Delay = 350, Interval = 120 };
@@ -885,12 +925,6 @@ internal sealed class DesktopPanels
         foreach (var width in widths)
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width < 0
                 ? new GridLength(-width, GridUnitType.Star) : new GridLength(width) });
-    }
-
-    private static void AddStarColumns(Grid grid, params double[] widths)
-    {
-        foreach (var width in widths)
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(width, GridUnitType.Star) });
     }
 
     private static void Put(Grid grid, UIElement child, int column)

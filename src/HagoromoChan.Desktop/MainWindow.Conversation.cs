@@ -259,7 +259,7 @@ public partial class MainWindow : Window
     private void RefreshComposer()
     {
         MessageInput.IsReadOnly = _pending is not null || _sending || _storageBlocked;
-        SendButton.Content = "送信";
+        SendButton.Content = "➤";
         if (_pending is not null)
         {
             SendButton.Content = _pendingAccepted ? "確定を再試行" : "再試行";
@@ -275,6 +275,13 @@ public partial class MainWindow : Window
             SendButton.Content = "確認中…";
         }
 
+        var sendDescription = _sending ? "送信受付を確認中"
+            : _storageBlocked ? "未確認メッセージの読込を再試行"
+            : _pendingAccepted ? "受付済みデータの整理を再試行"
+            : _pending is not null ? "同じメッセージの送信受付を再確認"
+            : "送信（Ctrl+Enter）、Enterで改行";
+        SendButton.ToolTip = sendDescription;
+        System.Windows.Automation.AutomationProperties.SetName(SendButton, sendDescription);
         SendButton.IsEnabled = !_sending && (_storageBlocked || _pending is not null
             || (_historyLoaded && !string.IsNullOrWhiteSpace(_panels.DraftText)));
         if (_initialized)
@@ -426,7 +433,7 @@ public partial class MainWindow : Window
 
         // Explicit dismissal suppresses status and existing unread notifications.
         // Only a genuinely new reply is allowed to reopen the conversation.
-        if ((newUnread || (firstCompleteRead && !_compactSuppressed)) && !_panels.ConversationOpen)
+        if ((newUnread || (firstCompleteRead && !_compactSuppressed)) && !_panels.HistoryOpen)
         {
             var answer = _messages.Select(item => item.Message).FirstOrDefault(message =>
                 message.Role == "assistant" && _preferences.UnreadIds.Contains(message.Id)
@@ -434,7 +441,7 @@ public partial class MainWindow : Window
             if (answer is not null)
             {
                 _compactSuppressed = false;
-                _panels.Open(answer.Id, false, false);
+                _panels.ShowMessage(answer.Id);
             }
         }
         RefreshStatus();
@@ -482,7 +489,7 @@ public partial class MainWindow : Window
         var waiting = _status is { } status && (status.QueuedCount > 0 || status.AwaitingReplyCount > 0);
         var shouldShow = _connectionProblem || _status is { Subscribed: false } || waiting || _sending
             || _preferencesSaveBlocked || details.Length != 0 || !string.IsNullOrEmpty(ConnectionErrorText.Text)
-            || (unread > 0 && !_panels.ConversationOpen);
+            || unread > 0;
         if (_sending && string.IsNullOrEmpty(QueueText.Text))
             QueueText.Text = "送信受付を確認中…";
         else if (!_sending && QueueText.Text == "送信受付を確認中…")

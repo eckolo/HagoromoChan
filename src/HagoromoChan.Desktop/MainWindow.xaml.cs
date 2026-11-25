@@ -96,8 +96,8 @@ public partial class MainWindow : Window
         Width = Height * _assetPixelWidth / _assetPixelHeight;
         Topmost = _preferences.Topmost;
 
-        _panels = new DesktopPanels(this, OpenComposer, OpenHistory, OpenSettings,
-            DismissSurfaces, OpenUnread, MarkRead);
+        _panels = new DesktopPanels(this, ToggleComposer, ToggleHistory, OpenSettings,
+            DismissSurfaces, OpenUnread, MarkRead, OpenComposer);
         MessageInput.PreviewKeyDown += MessageInput_PreviewKeyDown;
         _panels.DraftChanged += RefreshComposer;
         MessageInput.LostKeyboardFocus += MessageInput_LostKeyboardFocus;

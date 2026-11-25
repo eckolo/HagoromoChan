@@ -136,7 +136,7 @@ public partial class MainWindow : Window
             if (_panels.ConversationOpen)
                 DismissSurfaces();
             else
-                OpenComposer();
+                OpenBoth();
         }
     }
 
@@ -221,25 +221,40 @@ public partial class MainWindow : Window
         _panels.HideSurfaces();
     }
 
-    private void OpenComposer()
+    private bool PrepareConversation()
     {
-        if (!_initialized || _closing)
-            return;
+        if (!_initialized || _closing) return false;
         _compactSuppressed = false;
         HideHover();
         RefreshHistory();
+        return true;
+    }
+
+    private void OpenBoth()
+    {
+        if (!PrepareConversation()) return;
+        _panels.OpenBoth();
+        RefreshStatus();
+    }
+
+    private void OpenComposer()
+    {
+        if (!PrepareConversation()) return;
         _panels.FocusInput();
         RefreshStatus();
     }
 
-    private void OpenHistory()
+    private void ToggleComposer()
     {
-        if (!_initialized || _closing)
-            return;
-        _compactSuppressed = false;
-        HideHover();
-        RefreshHistory();
-        _panels.FocusHistory();
+        if (!PrepareConversation()) return;
+        _panels.ToggleInput();
+        RefreshStatus();
+    }
+
+    private void ToggleHistory()
+    {
+        if (!PrepareConversation()) return;
+        _panels.ToggleHistory();
         RefreshStatus();
     }
 
@@ -255,8 +270,20 @@ public partial class MainWindow : Window
             StaysOpen = false
         };
         _contextMenu = menu;
-        menu.Items.Add(MenuCommand("会話", OpenComposer));
-        menu.Items.Add(MenuCommand("会話履歴", OpenHistory));
+        menu.Items.Add(ToggleMenuCommand("話しかける", _panels.ComposerOpen, ToggleComposer));
+        menu.Items.Add(ToggleMenuCommand("会話履歴", _panels.HistoryOpen, ToggleHistory));
+        // On very small work areas a status surface may have no safe nearby slot.
+        // Keep its existing diagnostic and retry actions reachable without moving it away.
+        if (_panels.StatusNeedsAlternateAccess)
+        {
+            menu.Items.Add(new MenuItem { Header = ConnectionText.Text, IsEnabled = false });
+            menu.Items.Add(MenuCommand("状態の詳細をコピー", _panels.CopyStatus));
+            if (RelayRetryButton.Visibility == Visibility.Visible && RelayRetryButton.IsEnabled)
+                menu.Items.Add(MenuCommand("配信を再試行",
+                    () => RelayRetryButton_Click(RelayRetryButton, new RoutedEventArgs())));
+            if (_panels.UnreadButton.Visibility == Visibility.Visible)
+                menu.Items.Add(MenuCommand("未読の発言を表示", OpenUnread));
+        }
         menu.Items.Add(new Separator());
         var top = new MenuItem { Header = "最前面表示", IsCheckable = true, IsChecked = _preferences.Topmost };
         top.Click += (_, _) =>
@@ -294,6 +321,13 @@ public partial class MainWindow : Window
                 EnterMascot();
         };
         menu.IsOpen = true;
+    }
+
+    private static MenuItem ToggleMenuCommand(string label, bool open, Action action)
+    {
+        var item = new MenuItem { Header = label, IsCheckable = true, IsChecked = open };
+        item.Click += (_, _) => action();
+        return item;
     }
 
     private static MenuItem MenuCommand(string label, Action action)

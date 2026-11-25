@@ -99,3 +99,47 @@ internal static class HistoryNavigation
         return result;
     }
 }
+
+internal readonly record struct ConversationVisibility(bool Input, bool History)
+{
+    public bool Any => Input || History;
+    public ConversationVisibility ToggleInput() => this with { Input = !Input };
+    public ConversationVisibility ToggleHistory() => this with { History = !History };
+    public ConversationVisibility ToggleAll() => Any ? default : new(true, true);
+}
+
+internal readonly record struct SequenceEdit<T>(bool Remove, int Index, T Item);
+
+// Equal retained keys stay in the existing collection rather than being recreated.
+// The inputs consist of unique keys; ordinary history changes preserve relative order.
+internal static class RetainedSequence
+{
+    public static IReadOnlyList<SequenceEdit<T>> Plan<T>(IReadOnlyList<T> current,
+        IReadOnlyList<T> desired) where T : notnull
+    {
+        var state = current.ToList();
+        var wanted = desired.ToHashSet();
+        var edits = new List<SequenceEdit<T>>();
+        for (var i = state.Count - 1; i >= 0; i--)
+        {
+            if (wanted.Contains(state[i])) continue;
+            edits.Add(new(true, i, state[i]));
+            state.RemoveAt(i);
+        }
+        for (var i = 0; i < desired.Count; i++)
+        {
+            var item = desired[i];
+            if (i < state.Count && EqualityComparer<T>.Default.Equals(state[i], item))
+                continue;
+            var existing = state.IndexOf(item);
+            if (existing >= 0)
+            {
+                edits.Add(new(true, existing, item));
+                state.RemoveAt(existing);
+            }
+            edits.Add(new(false, i, item));
+            state.Insert(i, item);
+        }
+        return edits;
+    }
+}

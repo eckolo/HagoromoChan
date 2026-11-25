@@ -75,6 +75,15 @@ internal static class NativeDesktop
             throw new InvalidOperationException("ウィンドウ位置を変更できません。");
     }
 
+    public static void SetBounds(Window window, ScreenRect bounds)
+    {
+        var handle = Handle(window);
+        if (GetWindowRect(handle, out var current) && current.ToScreenRect() == bounds)
+            return;
+        if (!SetWindowPos(handle, 0, bounds.X, bounds.Y, bounds.Width, bounds.Height, NoZOrder | NoActivate))
+            throw new InvalidOperationException("ウィンドウ領域を変更できません。");
+    }
+
     // Populated by the native Win32 calls below.
 #pragma warning disable CS0649
     [StructLayout(LayoutKind.Sequential)]

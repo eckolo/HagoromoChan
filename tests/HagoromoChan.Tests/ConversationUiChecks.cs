@@ -131,6 +131,92 @@ internal static class ConversationUiChecks
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    public static void IndependentVisibility()
+    {
+        var none = default(ConversationVisibility);
+        var input = none.ToggleInput();
+        Equal(new ConversationVisibility(true, false), input);
+        var both = input.ToggleHistory();
+        Equal(new ConversationVisibility(true, true), both);
+        var history = both.ToggleInput();
+        Equal(new ConversationVisibility(false, true), history);
+        Equal(none, history.ToggleHistory());
+        Equal(history, none.ToggleHistory());
+        Equal(both, history.ToggleInput());
+        Equal(input, both.ToggleHistory());
+        Equal(none, input.ToggleInput());
+        True(!none.Any && input.Any && history.Any && both.Any, "Any visible panel enables the mascot's all-close action.");
+        Equal(both, none.ToggleAll());
+        Equal(none, input.ToggleAll());
+        Equal(none, history.ToggleAll());
+        Equal(none, both.ToggleAll());
+    }
+
+    public static void RetainedHistoryCards()
+    {
+        var remove = RetainedSequence.Plan(new[] { "old", "middle", "new" }, new[] { "middle", "new" });
+        Equal(1, remove.Count);
+        Equal(new SequenceEdit<string>(true, 0, "old"), remove[0]);
+        var prepend = RetainedSequence.Plan(new[] { "middle", "new" }, new[] { "old", "middle", "new" });
+        Equal(1, prepend.Count);
+        Equal(new SequenceEdit<string>(false, 0, "old"), prepend[0]);
+        var shift = RetainedSequence.Plan(new[] { "a", "b", "c" }, new[] { "b", "c", "d" });
+        True(shift.SequenceEqual(new[] { new SequenceEdit<string>(true, 0, "a"),
+            new SequenceEdit<string>(false, 2, "d") }), "Keep both retained cards when the visible range shifts.");
+        Equal(0, RetainedSequence.Plan(new[] { "a", "b" }, new[] { "a", "b" }).Count);
+        var read = RetainedSequence.Plan(new[] { "a", "b-unread", "c" }, new[] { "a", "b-read", "c" });
+        True(read.SequenceEqual(new[] { new SequenceEdit<string>(true, 1, "b-unread"),
+            new SequenceEdit<string>(false, 1, "b-read") }), "Only the changed card is replaced.");
+    }
+
+    public static void NearbyAuxiliaryWindows()
+    {
+        foreach (var (area, mascot) in new[]
+        {
+            (new ScreenRect(-2560, -60, 2560, 1400), new ScreenRect(-205, 1070, 180, 260)),
+            (new ScreenRect(0, 0, 1920, 1040), new ScreenRect(16, 764, 177, 260)),
+            (new ScreenRect(1920, -900, 1600, 860), new ScreenRect(3320, -310, 177, 260))
+        })
+        {
+            var zone = OverlayLayout.ConversationZone(area, mascot, 1);
+            var hoverWidth = OverlayLayout.AuxiliaryWidth(area, zone, 220, 150, 8);
+            var hover = OverlayLayout.NearbyAuxiliary(area, mascot, hoverWidth, 46, 8,
+                OverlaySide.Above, new[] { zone.Bounds });
+            True(hover.HasValue, "Hover fits beside the reserved conversation zone.");
+            var h = hover!.Value;
+            var statusWidth = OverlayLayout.AuxiliaryWidth(area, zone, 300, 155, 8);
+            var status = OverlayLayout.NearbyAuxiliary(area, mascot, statusWidth, 180, 8,
+                OverlaySide.Below, new[] { zone.Bounds, h }, h);
+            True(status.HasValue, "Status fits near the mascot or hover without using screen corners.");
+            var s = status!.Value;
+            foreach (var rect in new[] { h, s })
+            {
+                True(rect.X >= area.X && rect.Y >= area.Y && rect.Right <= area.Right && rect.Bottom <= area.Bottom,
+                    "Auxiliary is inside its work area.");
+                True(!OverlayLayout.Intersects(rect, mascot) && !OverlayLayout.Intersects(rect, zone.Bounds),
+                    "Auxiliary avoids the mascot and reserved conversation zone.");
+            }
+            True(!OverlayLayout.Intersects(h, s), "Auxiliary panels do not overlap.");
+            True(Distance(h, mascot) <= 8, "Hover remains adjacent to the mascot.");
+            True(Distance(s, mascot) <= 8 || Distance(s, h) <= 8, "Status is adjacent to a local anchor.");
+            Equal(status, OverlayLayout.NearbyAuxiliary(area, mascot, statusWidth, 180, 8,
+                OverlaySide.Below, new[] { zone.Bounds, h }, h));
+        }
+
+        // Large empty corners are deliberately not valid fallback targets.
+        var blocked = OverlayLayout.NearbyAuxiliary(new ScreenRect(0, 0, 1000, 800),
+            new ScreenRect(450, 350, 100, 100), 120, 60, 8, OverlaySide.Above,
+            new[] { new ScreenRect(0, 250, 1000, 300) });
+        True(blocked is null, "An unavailable adjacent slot must not jump to a remote corner.");
+    }
+
+    private static int Distance(ScreenRect a, ScreenRect b)
+    {
+        var x = Math.Max(0, Math.Max(a.X - b.Right, b.X - a.Right));
+        var y = Math.Max(0, Math.Max(a.Y - b.Bottom, b.Y - a.Bottom));
+        return x + y;
+    }
+
     private static void True(bool value, string message)
     {
         if (!value) throw new InvalidOperationException(message);

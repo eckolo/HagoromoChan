@@ -26,7 +26,10 @@ var tests = new (string Name, Action Run)[]
     ("Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
     ("Conversation stack expands upward and contracts without dropping stored messages", ConversationUiChecks.StackNavigation),
     ("Conversation zone is independent of content and mascot never upscales", ConversationUiChecks.FixedZoneAndSourceSize),
-    ("Display preference migration makes the former large size standard", ConversationUiChecks.PreferencesMigration)
+    ("Display preference migration makes the former large size standard", ConversationUiChecks.PreferencesMigration),
+    ("Input and conversation history toggle independently", ConversationUiChecks.IndependentVisibility),
+    ("History navigation retains surviving cards", ConversationUiChecks.RetainedHistoryCards),
+    ("Auxiliary surfaces remain adjacent to the mascot", ConversationUiChecks.NearbyAuxiliaryWindows)
 };
 
 var failures = 0;

@@ -102,6 +102,60 @@ internal static class OverlayLayout
             left >= right ? OverlaySide.Left : OverlaySide.Right);
     }
 
+    // Prefer a width that fits the corridor beside the fixed conversation zone.
+    // This is determined by geometry, never by the number or height of messages.
+    public static int AuxiliaryWidth(ScreenRect area, OverlayPlacement conversation, int desired,
+        int minimum, int gap)
+    {
+        var corridor = conversation.Side switch
+        {
+            OverlaySide.Left => area.Right - conversation.Bounds.Right,
+            OverlaySide.Right => conversation.Bounds.X - area.X,
+            _ => area.Width
+        };
+        return Math.Max(1, Math.Min(area.Width,
+            corridor - gap >= minimum ? Math.Min(desired, corridor - gap) : desired));
+    }
+
+    // Accept only candidates adjacent to the mascot or its adjacent auxiliary slot.
+    // Clamp on the cross axis, not along the distance from the chosen anchor.
+    // No fallback to remote corners of the monitor.
+    public static ScreenRect? NearbyAuxiliary(ScreenRect area, ScreenRect mascot,
+        int width, int height, int gap, OverlaySide preferred, IReadOnlyList<ScreenRect> obstacles,
+        ScreenRect? secondary = null)
+    {
+        if (width < 1 || height < 1 || width > area.Width || height > area.Height) return null;
+        gap = Math.Max(0, gap);
+        var sides = new[] { preferred, OverlaySide.Above, OverlaySide.Below,
+            OverlaySide.Left, OverlaySide.Right }.Distinct().ToArray();
+        var anchors = secondary is { } near ? new[] { mascot, near } : new[] { mascot };
+        foreach (var anchor in anchors)
+        foreach (var side in sides)
+        {
+            var vertical = side is OverlaySide.Above or OverlaySide.Below;
+            var cross = vertical
+                ? new[] { anchor.X + (anchor.Width - width) / 2, anchor.X, anchor.Right - width }
+                : new[] { anchor.Y + (anchor.Height - height) / 2, anchor.Y, anchor.Bottom - height };
+            foreach (var position in cross.Distinct())
+            {
+                var x = vertical ? Math.Clamp(position, area.X, area.Right - width)
+                    : side == OverlaySide.Left ? anchor.X - gap - width : anchor.Right + gap;
+                var y = !vertical ? Math.Clamp(position, area.Y, area.Bottom - height)
+                    : side == OverlaySide.Above ? anchor.Y - gap - height : anchor.Bottom + gap;
+                var candidate = new ScreenRect(x, y, width, height);
+                if (candidate.X < area.X || candidate.Y < area.Y ||
+                    candidate.Right > area.Right || candidate.Bottom > area.Bottom ||
+                    Intersects(candidate, mascot) || obstacles.Any(item => Intersects(candidate, item)))
+                    continue;
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    public static bool Intersects(ScreenRect a, ScreenRect b) =>
+        a.X < b.Right && a.Right > b.X && a.Y < b.Bottom && a.Bottom > b.Y;
+
     public static (int Width, int Height) MascotPixels(int imageWidth, int imageHeight,
         int requestedHeightDip, double scale, ScreenRect area)
     {
