@@ -14,6 +14,8 @@
     <ProjectReference Include="../HagoromoChan.Contracts/HagoromoChan.Contracts.csproj" />
     <Resource Include="Assets/Mascot.png" />
     <Resource Include="Assets/MascotReactions.png" />
-    <Resource Include="Assets/MascotThinking.png" />
+    <Resource Include="Assets/MascotThinkingBody.png" />
+    <Resource Include="Assets/MascotThinkingHead.png" />
+    <Resource Include="Assets/MascotThinkingHand.png" />
   </ItemGroup>
 </Project>

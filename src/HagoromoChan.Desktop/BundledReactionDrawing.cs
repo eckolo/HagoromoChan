@@ -12,6 +12,8 @@ internal sealed class BundledReactionDrawing
     private const int ThinkingSteps = 48;
 
     private readonly BitmapSource[] _cells;
+    private readonly BitmapSource _thinkingHead;
+    private readonly BitmapSource _thinkingHand;
     private readonly Rect _canvas;
     private readonly Dictionary<(Pose Pose, int Step), ImageSource> _drawings = new();
     private double _displayScale = 1;
@@ -33,10 +35,17 @@ internal sealed class BundledReactionDrawing
             cell.Freeze();
             _cells[i] = cell;
         }
-        var thinking = LoadBitmap("MascotThinking.png");
-        if (thinking.PixelWidth != w || thinking.PixelHeight != h)
-            throw new InvalidDataException("思案中の立ち絵のサイズが他の姿勢と一致しません。");
-        _cells[(int)Pose.Thinking] = thinking;
+        BitmapSource ThinkingLayer(string name)
+        {
+            var bitmap = LoadBitmap(name);
+            if (bitmap.PixelWidth != w || bitmap.PixelHeight != h)
+                throw new InvalidDataException($"思案中の立ち絵 {name} のサイズが他の姿勢と一致しません。");
+            return bitmap;
+        }
+
+        _cells[(int)Pose.Thinking] = ThinkingLayer("MascotThinkingBody.png");
+        _thinkingHead = ThinkingLayer("MascotThinkingHead.png");
+        _thinkingHand = ThinkingLayer("MascotThinkingHand.png");
     }
 
     private static BitmapSource LoadBitmap(string name)
@@ -123,20 +132,35 @@ internal sealed class BundledReactionDrawing
         using (var context = drawing.Open())
         {
             context.DrawRectangle(Brushes.Transparent, null, _canvas);
+            var bounds = new Rect(left, top, width, height);
+            context.DrawImage(cell, bounds);
             if (pose == Pose.Thinking)
-            {
-                // A rigid tilt keeps the face and fingertip together around the midpoint of the soles.
-                var degrees = 0.45 * Math.Sin(step * Math.Tau / ThinkingSteps);
-                var footX = left + width / 2;
-                var footY = top + height * 360 / 368;
-                context.PushTransform(new RotateTransform(degrees, footX, footY));
-            }
-            context.DrawImage(cell, new Rect(left, top, width, height));
-            if (pose == Pose.Thinking) context.Pop();
+                DrawThinkingLayers(context, bounds, step);
         }
         image = new DrawingImage(drawing);
         image.Freeze();
         _drawings.Add(key, image);
         return image;
+    }
+
+    private void DrawThinkingLayers(DrawingContext context, Rect bounds, int step)
+    {
+        // Rest through phase 4, tilt through 20, hold through 28, and return by 44.
+        var ramp = Math.Clamp(Math.Min(step - 4, 44 - step) / 16.0, 0, 1);
+        var degrees = -5.5 * (1 - Math.Cos(Math.PI * ramp)) / 2;
+
+        // Neck pivot and chin contact in the 288 x 368 master artwork.
+        var neck = new Point(bounds.Left + bounds.Width * 145 / 288, bounds.Top + bounds.Height * 188 / 368);
+        var chin = new Point(bounds.Left + bounds.Width * 138 / 288, bounds.Top + bounds.Height * 181 / 368);
+        var tilt = new RotateTransform(degrees, neck.X, neck.Y);
+        context.PushTransform(tilt);
+        context.DrawImage(_thinkingHead, bounds);
+        context.Pop();
+
+        // Track only the chin's displacement. The cuff stays within its overlap with the sleeve.
+        var shift = tilt.Transform(chin) - chin;
+        context.PushTransform(new TranslateTransform(shift.X, shift.Y));
+        context.DrawImage(_thinkingHand, bounds);
+        context.Pop();
     }
 }
