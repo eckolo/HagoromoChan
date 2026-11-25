@@ -131,6 +131,38 @@ public sealed class ChatStore : IDisposable
         }
     }
 
+    // A proactive assistant message has no corresponding user request. Its
+    // internal correlation key is its own namespaced ID, never a user GUID.
+    // Keep schema v2 and the existing reply/outbox invariants intact.
+    public ChatMessage AddProactiveMessage(string messageId, string text)
+    {
+        if (!Guid.TryParseExact(messageId, "D", out var parsed) || parsed == Guid.Empty)
+            throw new ValidationException("発言IDには有効なGUIDを指定してください。");
+        ValidateText(text);
+        var id = "proactive_" + parsed.ToString("D");
+
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            using var transaction = connection.BeginTransaction();
+            var existing = FindMessage(id, transaction);
+            if (existing is not null)
+            {
+                if (existing.Role != "assistant" || existing.InReplyTo is not null ||
+                    existing.Text != text)
+                    throw new ConflictException("同じ発言IDに異なる内容が指定されています。");
+                transaction.Commit();
+                return existing;
+            }
+
+            // Do not insert an outbox entry or synthesize a user request.
+            var message = InsertMessage(id, "assistant", text, null, id,
+                DateTimeOffset.UtcNow, transaction);
+            transaction.Commit();
+            return message;
+        }
+    }
+
     public MessagePage ReadMessages(long after = 0, int limit = 100)
     {
         if (after < 0)
