@@ -93,8 +93,9 @@ public partial class MainWindow : Window
             _preferencesWarning = "表示設定を読み込めません。desktop-ui.json を確認してください。 " + error.Message;
         }
 
-        var artwork = MascotArtwork.Load(dataDirectory, out var assetWarning);
-        _assetWarning = assetWarning;
+        var artwork = MascotArtwork.Load(dataDirectory, out var assetWarning, out var bundledArtwork);
+        _reactionArtwork = new CharacterReactionArtwork(artwork, dataDirectory, bundledArtwork);
+        _assetWarning = _reactionArtwork.Warning ?? assetWarning;
         MascotImage.Source = artwork;
         _assetPixelWidth = artwork.PixelWidth;
         _assetPixelHeight = artwork.PixelHeight;
@@ -127,6 +128,7 @@ public partial class MainWindow : Window
             _panels.Attach();
             RestorePosition();
             _initialized = true;
+            StartReactions();
             _placementTimer.Start();
             await RestorePendingAsync();
             RefreshStatus();
@@ -158,6 +160,7 @@ public partial class MainWindow : Window
             else
             {
                 _exitRequested = true;
+                StopReactions();
                 _placementTimer.Stop();
                 RefreshComposer();
                 // The supervisor owns the ordered stop and will signal this window.
@@ -181,6 +184,7 @@ public partial class MainWindow : Window
             return;
         _localExitQueued = true;
         _exitRequested = true;
+        StopReactions();
         _placementTimer.Stop();
 
         // Leave the active ContextMenu/Popup event stack before shutting down.
@@ -208,6 +212,7 @@ public partial class MainWindow : Window
             return;
 
         _closing = true;
+        StopReactions();
         _placementTimer.Stop();
         _panels.PrepareForShutdown();
         if (_contextMenu is { IsOpen: true } menu)

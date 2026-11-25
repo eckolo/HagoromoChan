@@ -14,6 +14,7 @@ internal sealed class DesktopPreferences
     public int Height { get; set; } = 260;
     public int LayoutVersion { get; set; }
     public bool Topmost { get; set; } = true;
+    public bool ReactionsEnabled { get; set; } = true;
     public long? ObservedSequence { get; set; }
     public string? ObservedId { get; set; }
     public HashSet<string> UnreadIds { get; set; } = new(StringComparer.Ordinal);

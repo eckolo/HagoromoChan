@@ -19,20 +19,23 @@ public partial class MainWindow : Window
     private void WireDesktopEvents()
     {
         _placementTimer.Tick += (_, _) => CheckPlacement();
-        MascotImage.PreviewMouseLeftButtonDown += BeginPointer;
-        MascotImage.PreviewMouseMove += MovePointer;
-        MascotImage.PreviewMouseLeftButtonUp += EndPointer;
-        MascotImage.LostMouseCapture += (_, _) =>
+        MascotSurface.MouseEnter += (_, _) => _hoverSince = Environment.TickCount64;
+        MascotSurface.MouseLeave += (_, _) => _hoverSince = null;
+        MascotSurface.PreviewMouseLeftButtonDown += BeginPointer;
+        MascotSurface.PreviewMouseMove += MovePointer;
+        MascotSurface.PreviewMouseLeftButtonUp += EndPointer;
+        MascotSurface.LostMouseCapture += (_, _) =>
         {
             if (!_pointerDown)
                 return;
             var moved = _dragging;
             _pointerDown = false;
             _dragging = false;
+            RefreshReactionSuspension();
             if (moved)
                 RememberPosition();
         };
-        MascotImage.PreviewMouseRightButtonUp += (_, e) =>
+        MascotSurface.PreviewMouseRightButtonUp += (_, e) =>
         {
             e.Handled = true;
             OpenSettings();
@@ -45,8 +48,9 @@ public partial class MainWindow : Window
             return;
         _dragStart = NativeDesktop.Cursor();
         _dragAnchor = NativeDesktop.Bounds(this);
-        _pointerDown = Mouse.Capture(MascotImage);
+        _pointerDown = Mouse.Capture(MascotSurface);
         _dragging = false;
+        RefreshReactionSuspension();
         e.Handled = true;
     }
 
@@ -80,11 +84,12 @@ public partial class MainWindow : Window
         if (!_pointerDown)
             return;
         var moved = _dragging;
-        var clicked = !moved && MascotImage.IsMouseOver;
+        var clicked = !moved && MascotSurface.IsMouseOver;
         _pointerDown = false;
         _dragging = false;
-        if (Mouse.Captured == MascotImage)
+        if (Mouse.Captured == MascotSurface)
             Mouse.Capture(null);
+        RefreshReactionSuspension();
         e.Handled = true;
         if (moved)
             RememberPosition();
@@ -94,6 +99,7 @@ public partial class MainWindow : Window
                 DismissSurfaces();
             else
                 OpenBoth();
+            _reactions.Click(Environment.TickCount64);
         }
     }
 
@@ -219,7 +225,7 @@ public partial class MainWindow : Window
             return;
         var menu = new ContextMenu
         {
-            PlacementTarget = MascotImage,
+            PlacementTarget = MascotSurface,
             Placement = PlacementMode.MousePoint,
             StaysOpen = false
         };
@@ -248,6 +254,12 @@ public partial class MainWindow : Window
             SavePreferences();
         };
         menu.Items.Add(top);
+        menu.Items.Add(ToggleMenuCommand("キャラクターの動き", _preferences.ReactionsEnabled, () =>
+        {
+            _preferences.ReactionsEnabled = !_preferences.ReactionsEnabled;
+            ApplyReactionSettings();
+            SavePreferences();
+        }));
         var size = new MenuItem { Header = "表示サイズ" };
         foreach (var (label, height) in new[] { ("小（120）", 120), ("中（180）", 180), ("大・標準（260）", 260) })
         {
@@ -274,8 +286,10 @@ public partial class MainWindow : Window
         menu.Closed += (_, _) =>
         {
             _contextMenu = null;
+            RefreshReactionSuspension();
         };
         menu.IsOpen = true;
+        RefreshReactionSuspension();
     }
 
     private static MenuItem ToggleMenuCommand(string label, bool open, Action action)
