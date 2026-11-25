@@ -10,8 +10,8 @@ if (-not $SkipBuild) {
 }
 
 $relayDll = Join-Path $repoRoot 'src/HagoromoChan.Relay/bin/Release/net10.0/HagoromoChan.Relay.dll'
-$desktopDll = Join-Path $repoRoot 'src/HagoromoChan.Desktop/bin/Release/net10.0-windows/HagoromoChan.Desktop.dll'
-if (-not (Test-Path $relayDll) -or -not (Test-Path $desktopDll)) {
+$desktopExe = Join-Path $repoRoot 'src/HagoromoChan.Desktop/bin/Release/net10.0-windows/HagoromoChan.Desktop.exe'
+if (-not (Test-Path $relayDll) -or -not (Test-Path $desktopExe)) {
     throw 'Build outputs are missing. Run this script without -SkipBuild.'
 }
 
@@ -36,4 +36,4 @@ if (-not $health) {
     }
 }
 
-Start-Process -FilePath $dotnet -ArgumentList ('"' + $desktopDll + '"') -WorkingDirectory $repoRoot
+Start-Process -FilePath $desktopExe -WorkingDirectory $repoRoot

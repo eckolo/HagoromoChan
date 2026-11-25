@@ -1,13 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <UseAppHost>true</UseAppHost>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>HagoromoChan.Desktop</AssemblyName>
     <RootNamespace>HagoromoChan.Desktop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HagoromoChan.Contracts/HagoromoChan.Contracts.csproj" />
+    <Resource Include="Assets/Mascot.png" />
   </ItemGroup>
 </Project>

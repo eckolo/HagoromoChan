@@ -1,52 +1,13 @@
 <Window x:Class="HagoromoChan.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="羽衣ちゃん" Width="450" Height="670" MinWidth="350" MinHeight="440"
-        WindowStartupLocation="CenterScreen"
-        Background="{StaticResource WindowBackground}"
-        Foreground="{StaticResource MainForeground}"
+        Title="羽衣ちゃん" Width="123" Height="180"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" ShowInTaskbar="False" ShowActivated="False"
+        WindowStartupLocation="Manual" Topmost="True" UseLayoutRounding="True"
         FontFamily="Yu Gothic UI, Meiryo" FontSize="14">
-    <Grid Margin="18">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <DockPanel LastChildFill="True" Margin="0,0,0,12">
-            <CheckBox DockPanel.Dock="Right" Content="最前面" VerticalAlignment="Center"
-                      Foreground="{StaticResource MutedForeground}"
-                      IsChecked="{Binding Topmost, RelativeSource={RelativeSource AncestorType=Window}}"
-                      ToolTip="他のアプリの前面に表示します" />
-            <TextBlock Text="羽衣ちゃん" FontSize="22" FontWeight="SemiBold" />
-        </DockPanel>
-
-        <Border Grid.Row="1" Background="{StaticResource PanelBackground}" CornerRadius="8"
-                Padding="12,9" Margin="0,0,0,14">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <Ellipse x:Name="ConnectionIndicator" Width="7" Height="7" Fill="#D9BB7A"
-                             Margin="0,0,8,0" VerticalAlignment="Center" />
-                    <TextBlock x:Name="ConnectionText" Text="接続を確認しています" FontWeight="SemiBold" />
-                </StackPanel>
-                <TextBlock x:Name="QueueText" Margin="15,4,0,0" FontSize="12"
-                           Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" />
-                <TextBlock x:Name="ConnectionErrorText" Margin="15,4,0,0" FontSize="12"
-                           Foreground="#F4C397" TextWrapping="Wrap" Visibility="Collapsed" />
-                <Button x:Name="RelayRetryButton" Content="配信を再試行" Visibility="Collapsed"
-                        HorizontalAlignment="Left" Margin="15,8,0,0" Padding="10,5" FontSize="12"
-                        Click="RelayRetryButton_Click" />
-            </StackPanel>
-        </Border>
-
-        <Grid Grid.Row="2">
-            <ScrollViewer x:Name="HistoryScroll" VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled" Padding="0,0,6,0">
-                <ItemsControl x:Name="HistoryItems">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
+    <Window.Resources>
+        <DataTemplate x:Key="HistoryMessageTemplate">
                             <Border Background="{Binding Background}" CornerRadius="9" Padding="12"
                                     Margin="0,0,0,10">
                                 <StackPanel>
@@ -61,37 +22,8 @@
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-            <TextBlock x:Name="EmptyHistoryText" Text="会話を読み込んでいます…"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" />
-            <Button x:Name="NewMessagesButton" Content="新しいメッセージへ" Visibility="Collapsed"
-                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6"
-                    Click="NewMessagesButton_Click" />
-        </Grid>
-
-        <StackPanel Grid.Row="3" Margin="0,12,0,0">
-            <TextBlock x:Name="SendFeedbackText" FontSize="12" TextWrapping="Wrap"
-                       Foreground="#F4C397" Margin="0,0,0,7" Visibility="Collapsed" />
-            <Border BorderBrush="#4E6278" BorderThickness="1" CornerRadius="8"
-                    Background="{StaticResource PanelBackground}" Padding="10">
-                <TextBox x:Name="MessageInput" MinHeight="70" MaxHeight="170" MaxLength="32768"
-                         AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="0"
-                         Background="Transparent" Foreground="{StaticResource MainForeground}"
-                         CaretBrush="{StaticResource MainForeground}" VerticalScrollBarVisibility="Auto"
-                         PreviewKeyDown="MessageInput_PreviewKeyDown" TextChanged="MessageInput_TextChanged"
-                         LostKeyboardFocus="MessageInput_LostKeyboardFocus"
-                         AutomationProperties.Name="羽衣ちゃんへのメッセージ" />
-            </Border>
-        </StackPanel>
-
-        <DockPanel Grid.Row="4" Margin="0,10,0,0" LastChildFill="True">
-            <Button x:Name="SendButton" DockPanel.Dock="Right" Content="送信" MinWidth="92"
-                    IsEnabled="False" Click="SendButton_Click" />
-            <TextBlock Text="Ctrl＋Enter で送信&#x0a;Enter で改行" FontSize="11"
-                       VerticalAlignment="Center" Foreground="{StaticResource MutedForeground}" />
-        </DockPanel>
-    </Grid>
+    </Window.Resources>
+    <Image x:Name="MascotImage" Stretch="Fill" Cursor="Hand"
+           AutomationProperties.Name="羽衣ちゃん。クリックで会話、ドラッグで移動、右クリックで設定"
+           RenderOptions.BitmapScalingMode="HighQuality" />
 </Window>

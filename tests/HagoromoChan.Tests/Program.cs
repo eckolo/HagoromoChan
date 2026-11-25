@@ -19,7 +19,10 @@ var tests = new (string Name, Action Run)[]
     ("A late failure using an old key cannot undo verified renewal", LateFailureAfterRenewal),
     ("Schema v1 upgrades preserve messages and pending delivery state", GenerationMigration),
     ("Concurrent retries commit one user message and one answer", ConcurrentRetries),
-    ("MCP protocol, signatures, secure callbacks and two-turn conversation", ProtocolChecks.RunAll)
+    ("MCP protocol, signatures, secure callbacks and two-turn conversation", ProtocolChecks.RunAll),
+    ("Desktop overlay placement and work-area bounds", DesktopUiChecks.Placement),
+    ("Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
+    ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity)
 };
 
 var failures = 0;
