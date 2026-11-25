@@ -33,6 +33,6 @@ flowchart LR
 
 起動・接続の既存手順は [README](../README.md) にある。将来の構成変更は合意したマイルストーンで実施し、ここを更新する。
 
-## M08 管理実行環境（実装候補）
+## M08 管理実行環境（v1.0.4）
 
-単一の [Launcher](../src/HagoromoChan.Launcher/) が Desktop、Relay、公式トンネルとstdioのプロセス寿命を管理する。起動・停止・更新と通常の送受信を分離する。詳細は [M08設計](design/M08-runtime-management.md)・[実機確認](operations/M08-verification.md)。この記述はM08枝の候補で、Windows実機検証後に統合を判断する。
+単一の [Launcher](../src/HagoromoChan.Launcher/) が Desktop、Relay、公式トンネルとstdioのプロセス寿命を管理する。起動・停止・更新と通常の送受信を分離する。詳細は [M08設計](design/M08-runtime-management.md)・[実機確認](operations/M08-verification.md)。通常の管理起動・会話往復のユーザー実機成功報告とv1.0.4の全般的な受入に基づき統合する。異常系・ログオン等の個別未検査は検証手順とM08個別記録に維持する。

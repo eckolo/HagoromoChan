@@ -18,7 +18,7 @@ M03 v2.3では透過キャラクターの常駐表示、クリック・右クリ
 
 実際の羽衣ちゃんへの接続には、利用アカウントでのカスタムMCP／イベント／書き込みツールの利用権限と、Secure MCP Tunnelの設定が必要です。イベント受領から返事までの時間、公式のDot会話での表示、書き込み時の承認動作は実アカウントで確認します。
 
-## Windowsで起動する（M08候補）
+## Windowsで起動する（M08 v1.0.4）
 
 Windows 11、.NET 10 SDK（開発用）、.NET 10 Desktop/ASP.NET Coreランタイム、既存の公式tunnel-client 0.0.21とhagoromoプロファイルを使用します。初回は旧手動トンネル、Desktop、Relayを正常終了してください。会話データや購読の削除は不要です。
 
@@ -29,7 +29,7 @@ Windows 11、.NET 10 SDK（開発用）、.NET 10 Desktop/ASP.NET Coreランタ�
 
 通常起動は %LOCALAPPDATA%\HagoromoChan\app\HagoromoChan.exe の起動だけです。Start.ps1 は同じexeを起動し、ビルドしません。右クリック「終了」「再起動」は管理下の全プロセスを対象とし、「接続状態」は既存状態窓を拡張します。スタートアップは Startup.ps1 -Action Enable で明示登録し、Disable で解除します。ソース更新はgit pull --ff-only等で行った後に Update.ps1 を実行します。開発用の個別再起動や確認は Control.ps1 を使用します。
 
-詳しい移行・更新・テスト手順は [M08実機確認手順](docs/operations/M08-verification.md) を参照してください。v1.0は実装候補で、Windowsでのビルド・動作確認が必要です。
+詳しい移行・更新・テスト手順は [M08実機確認手順](docs/operations/M08-verification.md) を参照してください。M08 v1.0.4はユーザーの全般的な実機動作成功報告と受入に基づき完了とし、個別未検査は実機確認手順に残します。初回以降の更新時にキーを再入力する必要はありません。
 
 個別開発起動では、従来どおり先にRelay、別ターミナルでDesktopを実行できます（管理起動と同時には実行しない）。
 
