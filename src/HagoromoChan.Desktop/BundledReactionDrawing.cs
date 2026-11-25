@@ -8,12 +8,15 @@ namespace HagoromoChan.Desktop;
 // The first nine poses are stored row-major in the atlas. All poses share a foot anchor.
 internal sealed class BundledReactionDrawing
 {
-    private enum Pose { Neutral, Up, Down, Left, Right, Blink, Wave, Jump, Concerned, Thinking }
+    private enum Pose { Neutral, Up, Down, Left, Right, Blink, Wave, Jump, Concerned, Thinking, Unread }
+    // The four cells of the unread-eye atlas are ordered left, right, up, down.
+    private enum UnreadGaze { Front, Left, Right, Up, Down }
     private const int ThinkingSteps = 48;
 
     private readonly BitmapSource[] _cells;
     private readonly BitmapSource _thinkingHead;
     private readonly BitmapSource _thinkingHand;
+    private readonly BitmapSource[] _unreadEyes = new BitmapSource[4];
     private readonly Rect _canvas;
     private readonly Dictionary<(Pose Pose, int Step), ImageSource> _drawings = new();
     private double _displayScale = 1;
@@ -28,24 +31,32 @@ internal sealed class BundledReactionDrawing
 
         var w = sheet.PixelWidth / 3;
         var h = sheet.PixelHeight / 3;
-        _cells = new BitmapSource[(int)Pose.Thinking + 1];
+        _cells = new BitmapSource[(int)Pose.Unread + 1];
         for (var i = 0; i < 9; i++)
         {
             var cell = new CroppedBitmap(sheet, new Int32Rect(i % 3 * w, i / 3 * h, w, h));
             cell.Freeze();
             _cells[i] = cell;
         }
-        BitmapSource ThinkingLayer(string name)
+        BitmapSource LoadLayer(string name, int columns = 1, int rows = 1)
         {
             var bitmap = LoadBitmap(name);
-            if (bitmap.PixelWidth != w || bitmap.PixelHeight != h)
-                throw new InvalidDataException($"思案中の立ち絵 {name} のサイズが他の姿勢と一致しません。");
+            if (bitmap.PixelWidth != w * columns || bitmap.PixelHeight != h * rows)
+                throw new InvalidDataException($"立ち絵 {name} のサイズが他の姿勢と一致しません。");
             return bitmap;
         }
 
-        _cells[(int)Pose.Thinking] = ThinkingLayer("MascotThinkingBody.png");
-        _thinkingHead = ThinkingLayer("MascotThinkingHead.png");
-        _thinkingHand = ThinkingLayer("MascotThinkingHand.png");
+        _cells[(int)Pose.Thinking] = LoadLayer("MascotThinkingBody.png");
+        _thinkingHead = LoadLayer("MascotThinkingHead.png");
+        _thinkingHand = LoadLayer("MascotThinkingHand.png");
+        _cells[(int)Pose.Unread] = LoadLayer("MascotUnread.png");
+        var eyes = LoadLayer("MascotUnreadEyes.png", 2, 2);
+        for (var i = 0; i < _unreadEyes.Length; i++)
+        {
+            var eye = new CroppedBitmap(eyes, new Int32Rect(i % 2 * w, i / 2 * h, w, h));
+            eye.Freeze();
+            _unreadEyes[i] = eye;
+        }
     }
 
     private static BitmapSource LoadBitmap(string name)
@@ -80,6 +91,16 @@ internal sealed class BundledReactionDrawing
 
         if (action == "thinking")
             return Draw(Pose.Thinking, (int)(progress * ThinkingSteps) % ThinkingSteps);
+        if (action == "unread")
+        {
+            // The last second of the seven-second loop is a brief glance at the balloon.
+            var gaze = UnreadGaze.Front;
+            if (CharacterReactionState.ShowsUnreadGlance(progress) && (gazeX != 0 || gazeY != 0))
+                gaze = Math.Abs(gazeX) >= Math.Abs(gazeY)
+                    ? (gazeX < 0 ? UnreadGaze.Left : UnreadGaze.Right)
+                    : (gazeY < 0 ? UnreadGaze.Up : UnreadGaze.Down);
+            return Draw(Pose.Unread, (int)gaze);
+        }
 
         // A blink is one brief, drawn expression. Keep the eyes open between blinks.
         if (action == "idle")
@@ -124,7 +145,7 @@ internal sealed class BundledReactionDrawing
         var width = cell.PixelWidth * scale;
         var height = cell.PixelHeight * scale;
         var left = (_canvas.Width - width) / 2;
-        var lift = pose == Pose.Thinking ? 0 : step * _canvas.Height / 200;
+        var lift = pose is Pose.Jump or Pose.Wave ? step * _canvas.Height / 200 : 0;
         var top = Math.Max(0, _canvas.Height - height - lift);
         var drawing = new DrawingGroup();
         if (pose == Pose.Thinking)
@@ -136,6 +157,8 @@ internal sealed class BundledReactionDrawing
             context.DrawImage(cell, bounds);
             if (pose == Pose.Thinking)
                 DrawThinkingLayers(context, bounds, step);
+            else if (pose == Pose.Unread && step != (int)UnreadGaze.Front)
+                context.DrawImage(_unreadEyes[step - 1], bounds);
         }
         image = new DrawingImage(drawing);
         image.Freeze();

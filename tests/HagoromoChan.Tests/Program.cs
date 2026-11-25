@@ -22,6 +22,7 @@ var tests = new (string Name, Action Run)[]
     ("MCP protocol, signatures, secure callbacks and two-turn conversation", ProtocolChecks.RunAll),
     ("Initial history, partial reads and duplicate replies do not replay reactions", CharacterReactionTests.Inbox),
     ("Character reactions preserve priority, interaction suspension and expiration", CharacterReactionTests.Playback),
+    ("Unread rest follows reconciled IDs, preserves its phase and yields to active reactions", CharacterReactionTests.Unread),
     ("Waiting uses a thinking loop, follows activity and resolves only matching replies", CharacterReactionTests.Waiting),
     ("System, app-only and disabled motion preferences preserve prior choices", CharacterReactionTests.MotionPreferences),
     ("Nearby cursors hold the gaze across distance and DPI boundaries", CursorGazeTests.Proximity),

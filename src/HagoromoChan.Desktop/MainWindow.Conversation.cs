@@ -425,8 +425,13 @@ public partial class MainWindow : Window
         _panels.SetComposing(false);
     }
 
-    private void RefreshHistory() =>
+    private void RefreshHistory()
+    {
         _panels.UpdateHistory(_messages.Select(item => item.Message).ToArray(), _preferences.UnreadIds);
+        // The first complete read reconciles the persisted checkpoint before the pose follows it.
+        if (_historyLoaded)
+            _reactions.SetUnread(_preferences.UnreadIds.Count > 0, Environment.TickCount64);
+    }
 
     private void ObserveReplies(bool firstCompleteRead)
     {

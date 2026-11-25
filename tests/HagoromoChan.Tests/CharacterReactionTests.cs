@@ -102,6 +102,66 @@ internal static class CharacterReactionTests
             "closing discards pending work and ignores later callbacks");
     }
 
+    public static void Unread()
+    {
+        var state = new CharacterReactionState();
+        var inbox = new ReactionInbox();
+        var saved = new DesktopPreferences { ObservedSequence = 1, ObservedId = "old", UnreadIds = ["old"] };
+        var history = new List<ChatMessage> { Row(1, "old") };
+        void Read(long ms)
+        {
+            var cursor = history[^1].Sequence;
+            saved.Observe(history, cursor);
+            state.Receive(inbox.ObserveCompletedRead(history, cursor), ms);
+            state.SetUnread(saved.UnreadIds.Count > 0, ms);
+        }
+
+        Read(100);
+        var restored = state.Sample(100);
+        Check(restored.Pose == ReactionPose.Unread && restored.ElapsedMs == 0 && restored.AllowsGaze,
+            "first complete read restores quiet unread, without replaying arrival");
+        Read(1400);
+        Check(state.Sample(1470).ElapsedMs == 1370, "repeated poll preserves the unread phase");
+        history.Add(Row(2, "proactive_new"));
+        Read(1500);
+        Check(state.Sample(1501).Pose == ReactionPose.Jump, "arrival interrupts unread");
+        Check(state.Sample(2150) is { Pose: ReactionPose.Unread, ElapsedMs: 2050 },
+            "additional unread ID does not restart the cycle");
+        saved.UnreadIds.Remove("old");
+        state.SetUnread(saved.UnreadIds.Count > 0, 2300);
+        Check(state.Sample(2350).ElapsedMs == 2250, "reading one of several preserves phase");
+        state.SendAccepted("own", 2500);
+        Check(state.Sample(2501).Pose == ReactionPose.Review && state.Sample(3310).Pose == ReactionPose.Thinking,
+            "local acceptance and waiting for a reply both take precedence");
+        state.Click(3500);
+        Check(state.Sample(3501).Pose == ReactionPose.Wave, "click takes precedence");
+        history.Add(Row(3, "answer", "own"));
+        Read(4500);
+        Check(state.Sample(4501).Pose == ReactionPose.Jump && state.Sample(5150).Pose == ReactionPose.Unread,
+            "matching reply settles request, then unread resumes");
+        Check(!CharacterReactionState.ShowsUnreadGlance(5999d / 7000)
+            && CharacterReactionState.ShowsUnreadGlance(6000d / 7000)
+            && CharacterReactionState.ShowsUnreadGlance(6999d / 7000)
+            && !CharacterReactionState.ShowsUnreadGlance(1),
+            "only the last second is reserved for a glance at the unread surface");
+        state.Suspend(true, 6800);
+        Check(state.Sample(6900).Pose == ReactionPose.Still, "drag and menus suppress unread");
+        state.Suspend(false, 7250);
+        Check(state.Sample(7250) is { Pose: ReactionPose.Unread, ElapsedMs: 150, DurationMs: 7000 },
+            "seven-second loop resumes at its continuing phase");
+        saved.UnreadIds.Clear();
+        state.SetUnread(false, 7300);
+        Read(7350);
+        Check(state.Sample(7350).Pose == ReactionPose.Idle, "read all, repeat poll, then idle");
+        state.SetUnread(true, 8000);
+        Check(state.Sample(8000).ElapsedMs == 0, "a separate unread period starts a new cycle");
+        state.SetEnabled(false, 8100);
+        Check(state.Sample(8200).Pose == ReactionPose.Still, "disabled motion stays still");
+        state.SetUnread(false, 8300);
+        state.SetEnabled(true, 8400);
+        Check(state.Sample(8400).Pose == ReactionPose.Idle, "reading while disabled clears the pose");
+    }
+
     public static void Waiting()
     {
         var state = new CharacterReactionState();

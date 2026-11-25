@@ -113,6 +113,7 @@ public partial class MainWindow
             var action = frame.Pose switch
             {
                 ReactionPose.Idle => "idle",
+                ReactionPose.Unread => "unread",
                 ReactionPose.Wave => "waving",
                 ReactionPose.Review => "review",
                 ReactionPose.Thinking => "thinking",
@@ -121,21 +122,24 @@ public partial class MainWindow
                 ReactionPose.Look => "waiting",
                 _ => "frozen"
             };
-            // The cursor can interrupt quiet thinking or window tracking while an answer is pending.
+            var progress = frame.DurationMs > 0 ? (double)frame.ElapsedMs / frame.DurationMs : 0;
+            // Direct user input takes precedence over every background pose.
             if (frame.AllowsGaze && _lastBounds is { } mascot)
             {
                 var cursor = NativeDesktop.TryCursor();
                 var gaze = cursor is { } at ? _cursorGaze.Sample(mascot, _lastScale, at.X, at.Y, now) : null;
-                if (gaze is null && !_reactions.WaitingForReply)
+                var unreadGlance = frame.Pose == ReactionPose.Unread && CharacterReactionState.ShowsUnreadGlance(progress);
+                if (gaze is null && !unreadGlance && !_reactions.WaitingForReply)
                     gaze = target;
                 if (gaze is { } active)
                 {
                     direction = active;
                     action = "look";
                 }
+                else if (unreadGlance)
+                    direction = _panels.UnreadDirection(mascot);
             }
 
-            var progress = frame.DurationMs > 0 ? (double)frame.ElapsedMs / frame.DurationMs : 0;
             var image = _reactionArtwork.Frame(action, progress, direction.X, direction.Y);
             if (!ReferenceEquals(image, MascotImage.Source)) MascotImage.Source = image;
             var interval = frame.AllowsGaze ? 100 : 50;

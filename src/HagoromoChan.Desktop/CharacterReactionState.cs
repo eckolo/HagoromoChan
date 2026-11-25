@@ -2,12 +2,12 @@ using HagoromoChan.Contracts;
 
 namespace HagoromoChan.Desktop;
 
-internal enum ReactionPose { Still, Idle, Thinking, Look, Wave, Review, Failed, Jump }
+internal enum ReactionPose { Still, Idle, Unread, Thinking, Look, Wave, Review, Failed, Jump }
 
 internal readonly record struct ReactionFrame(
     ReactionPose Pose, long ElapsedMs, int DurationMs, double GazeX = 0, double GazeY = 0)
 {
-    public bool AllowsGaze => Pose is ReactionPose.Idle or ReactionPose.Thinking or ReactionPose.Look;
+    public bool AllowsGaze => Pose is ReactionPose.Idle or ReactionPose.Unread or ReactionPose.Thinking or ReactionPose.Look;
 }
 
 // ReadMessagesAsync passes the sequence-ordered desktop history after its last page succeeds.
@@ -73,6 +73,7 @@ internal sealed class CharacterReactionState
     private const int GazeTransitionMs = 200;
     private const int GazeHoldMs = 1600;
     private const int WaitingCycleMs = 4600;
+    internal const int UnreadCycleMs = 7000;
 
     private readonly HashSet<string> _accepted = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _awaitingReplies = new(StringComparer.OrdinalIgnoreCase);
@@ -82,6 +83,7 @@ internal sealed class CharacterReactionState
     private long _pendingSince;
     private long? _lastWave;
     private long _waitingSince;
+    private long? _unreadSince;
     private long? _windowMoved;
     private (double X, double Y) _gazeFrom;
     private (double X, double Y) _gazeTarget;
@@ -90,6 +92,16 @@ internal sealed class CharacterReactionState
     private bool _stopped;
 
     public bool WaitingForReply => _awaitingReplies.Count > 0;
+
+    internal static bool ShowsUnreadGlance(double progress) =>
+        progress >= (UnreadCycleMs - 1000d) / UnreadCycleMs && progress < 1;
+
+    public void SetUnread(bool hasUnread, long nowMs)
+    {
+        if (_stopped) return;
+        if (hasUnread) _unreadSince ??= nowMs;
+        else _unreadSince = null;
+    }
 
     public void Click(long nowMs)
     {
@@ -153,6 +165,7 @@ internal sealed class CharacterReactionState
         _pending = null;
         _awaitingReplies.Clear();
         _accepted.Clear();
+        _unreadSince = null;
     }
 
     // Only direction and observation time are used. Screen Y increases downwards.
@@ -192,6 +205,8 @@ internal sealed class CharacterReactionState
             return new(watching ? ReactionPose.Look : ReactionPose.Thinking,
                 phase, WaitingCycleMs, gaze.X, gaze.Y);
         }
+        if (_unreadSince is long unreadSince)
+            return new(ReactionPose.Unread, (nowMs - unreadSince) % UnreadCycleMs, UnreadCycleMs);
         return new(ReactionPose.Idle, nowMs % 1000, 1000);
     }
 

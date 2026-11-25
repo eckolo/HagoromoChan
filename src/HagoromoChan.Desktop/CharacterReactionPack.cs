@@ -152,6 +152,12 @@ internal sealed class CharacterReactionPack
             action = "look";
         if (action == "look" && _actions.TryGetValue("look", out var directions))
             return directions[CharacterReactionArtwork.LookDirection(gazeX, gazeY)].Bitmap;
+        if (action == "unread" && !_actions.ContainsKey("unread"))
+        {
+            // Keep an existing pack's usual one-second idle cadence during the longer unread cycle.
+            action = "idle";
+            progress = progress * CharacterReactionState.UnreadCycleMs / 1000 % 1;
+        }
         if (action == "frozen") return _actions["idle"][0].Bitmap;
         if (!_actions.TryGetValue(action, out var frames)) frames = _actions["idle"];
         var at = progress * frames[^1].EndMs;
