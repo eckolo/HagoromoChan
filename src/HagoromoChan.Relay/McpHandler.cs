@@ -312,6 +312,8 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
                 throw InvalidParams("Expected bounded Work answer choices.");
             var choices = supplied.EnumerateArray().Select(entry =>
             {
+                if (entry.ValueKind != JsonValueKind.Object)
+                    throw InvalidParams("Each Work choice must be an object.");
                 ValidateProperties(entry, ["message_id", "label"]);
                 return new WorkAnswerCandidate(RequiredString(entry, "message_id"), RequiredString(entry, "label"));
             }).ToArray();
@@ -334,6 +336,8 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
                 throw InvalidParams("Expected bounded Work choices.");
             var choices = supplied.EnumerateArray().Select(entry =>
             {
+                if (entry.ValueKind != JsonValueKind.Object)
+                    throw InvalidParams("Each Work choice must be an object.");
                 ValidateProperties(entry, ["conversation_id", "title"]);
                 return new WorkSourceCandidate(RequiredString(entry, "conversation_id"), RequiredString(entry, "title"));
             }).ToArray();

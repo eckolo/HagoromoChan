@@ -121,6 +121,12 @@ internal static class CloudImportChecks
         {
             operation_id = discovery.OperationId, choices = new[] { new { conversation_id = "work/A", title = "Invalid" } }
         })).GetProperty("isError").GetBoolean(), "Path separators cannot enter provider IDs");
+        var malformedDiscovery = await Call("tools/call", new
+        {
+            name = "complete_work_discovery", arguments = new { operation_id = discovery.OperationId, choices = new[] { 7 } }
+        });
+        Must(malformedDiscovery.GetProperty("error").GetProperty("code").GetInt32() == -32602,
+            "A non-object Work discovery choice is rejected as invalid params");
         const string found = "work_Fixture_A";
         const string sibling = "work_Fixture_a";
         Must(!(await WorkTool("complete_work_discovery", new
@@ -181,6 +187,16 @@ internal static class CloudImportChecks
         var listRequest = handler.WorkPull.Next();
         Must(listRequest is { Action: "list_answers" } && listRequest.ConversationId == conversation,
             "SSP asks only for answers in the selected Work");
+        var malformedAnswerChoices = await Call("tools/call", new
+        {
+            name = "complete_work_answer_choices", arguments = new
+            {
+                operation_id = answerList.OperationId, source_id = selected.Id, conversation_id = conversation,
+                choices = new string?[] { null }
+            }
+        });
+        Must(malformedAnswerChoices.GetProperty("error").GetProperty("code").GetInt32() == -32602,
+            "A null Work answer choice is rejected as invalid params");
         const string olderMessage = "msg_older_completed";
         const string latestMessage = "msg_latest_completed";
         Must(!(await WorkTool("complete_work_answer_choices", new
