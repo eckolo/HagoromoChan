@@ -67,3 +67,44 @@ must not silently replace a selected answer if that item is no longer provable
 through the available reader. Fetching from a different history representation
 does not satisfy these gates. A real worker host/wake with the scoped connector
 still needs to be provisioned separately before live SSP use.
+
+## Isolated Windows synthetic UI smoke
+
+Pinned application source: `b47bbc4f221e4aab198f44f919a9f9dd8a9836db`
+(.NET 10 SDK, stable; `global.json` allows latest feature band).
+The helper itself lives on a later, test-and-documentation-only commit.
+Run from a local HagoromoChan checkout containing the pin. Ordinary Windows
+PowerShell 5.1 or later is sufficient in principle. If local execution policy
+disallows the script, stop rather than changing or bypassing that policy.
+
+- Protocol only: `& .\scripts\Test-M05-WorkSelection.ps1 -NoDesktop` (also supported by design on Linux PowerShell 7+ as `pwsh -File ./scripts/Test-M05-WorkSelection.ps1 -NoDesktop`)
+- GUI: `& .\scripts\Test-M05-WorkSelection.ps1`
+
+The helper exports only the pinned Git tree into a fresh user temp folder.
+In that copy it replaces the fixed Relay/Desktop port with a fresh loopback
+port and adds an `[M05 TEST]` window-title marker. It starts only those two
+test components, boxes off local data and build caches, and uses a synthetic MCP
+stdio worker. It does not start the normal Launcher or tunnel, connect to the
+live SSP or connector, fetch a private Chat/Work, or need administrator
+privileges. A normal SDK restore can fetch packages. Only launched trial child
+processes are stopped. Scratch files, including logs, remain under the path
+printed by the script.
+
+In the marked window, register `M05 Synthetic Work` via Work discovery, then
+list its answers and select `01 Older (select this)`, not the newer item.
+The exact body should be `M05 synthetic exact selected original.`.
+The worker deliberately duplicates the identical completion; successful local
+protocol readback emits `M05_WORK_SELECTION_PROTOCOL_OK` when exactly one
+selected answer is saved and ordinary Dot history is empty. This marker checks
+persistence, **not** whether the user saw the body. For GUI evidence, note the
+marked window, both offered choices, and the exact older body displayed.
+Use Ctrl+C in the test console to stop the test; do not stop the installed app.
+
+Verification so far: the pinned solution cross-targeted on Linux with .NET SDK
+10.0.404 (Release, 0 warnings and errors), C# regression 46/47 passed (the known
+runtime named-pipe test was not runnable in that sandbox), and the Node worker
+tests passed. The script's route names, tools, port guards, and GUI control
+labels were statically checked against the pin. PowerShell syntax and execution
+and the interactive Windows WPF smoke have not yet been verified in this
+environment. The synthetic rerun does not resolve the separate production gates:
+trusted Work title-to-execution identity and a running authenticated worker.
