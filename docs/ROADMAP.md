@@ -44,6 +44,9 @@
 | M33 | 状況に応じたキャラクターアクションの選択 | 優先度は着手時に確認 | M21（再生・中断）、移動の統合にはM10 | `milestone/M33-contextual-action-selection` | [M33](milestones/M33.md) |
 | MGMT-34 | M21の範囲変更と状況に応じた動作選択の登録 | 管理 | M21、MGMT-31 | `milestone/MGMT-34-split-action-selection` | [MGMT-34](milestones/MGMT-34.md) |
 
+| M35 | 長文の会話窓の高さ調整と全文表示 | 優先度は着手時に確認 | M03・M22（既存UI・左右位置） | `milestone/M35-bubble-text-fit` | [M35](milestones/M35.md) |
+| MGMT-36 | 長文の会話窓の再発対応を登録 | 管理 | M22、MGMT-34 | `milestone/MGMT-36-register-bubble-text-fit` | [MGMT-36](milestones/MGMT-36.md) |
+
 ## 着手順と依存
 
 - M03 はアプリの必須機能であり、最優先で基本 UI を実用段階に進める。M04～M06・M08～M10 は原則その後に検討する。M03 の完了自体を一律の技術的依存とはせず、完了前の並行着手は必要性を整理しユーザーと合意する。
