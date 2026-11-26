@@ -51,6 +51,7 @@ builder.Services.AddSingleton(store);
 builder.Services.AddSingleton<WebhookClient>();
 builder.Services.AddSingleton<McpHandler>();
 builder.Services.AddHostedService<EventDispatcher>();
+builder.Services.AddHostedService<WorkWakeDispatcher>();
 var app = builder.Build();
 
 app.Use(async (context, next) =>

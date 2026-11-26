@@ -108,3 +108,40 @@ labels were statically checked against the pin. PowerShell syntax and execution
 and the interactive Windows WPF smoke have not yet been verified in this
 environment. The synthetic rerun does not resolve the separate production gates:
 trusted Work title-to-execution identity and a running authenticated worker.
+
+## Candidate worker wake (not deployed)
+
+The relay candidate advertises `work.retrieval.requested` with a separate
+`hagoromo-work-retrieval` event channel. Its process-local subscription is
+separate from `message.created`; it uses the existing verified, signed HTTPS
+webhook transport but never replaces, persists as, or unsubscribes the Dot
+message subscriber. It emits only the dedicated channel and opaque operation
+ID, not a title, Work ID, prompt, answer, or read scope. Pending operations
+and wake subscriptions are temporary; the subscription must be renewed after
+Relay restart. The dispatcher retries transient delivery at most twice and
+never keeps emitting a wake once the webhook accepted it.
+
+A future platform administrator would first need the updated Relay on a
+separate test instance, then confirm a scoped connected-app refresh actually
+advertises this event and the worker tools. Only if that succeeds would an
+independent test subscription bind an authenticated worker to this exact
+channel. The currently installed app schema advertises only
+`message.created`; general automation discovery does not list HagoromoChan.
+Do not repurpose the existing message subscription, route through Dot chat,
+poll an unauthorized integration, add a connector broadly, or assume this
+isolated implementation proves platform support.
+
+`serviceWorkWake` requires an authenticated host. It checks event/channel
+and retrieves the **exact** pending operation over that host's authenticated
+connector before doing anything further. A mismatching, expired, or already
+completed operation is a no-op. The host separately checks a private exact-ID
+allowlist before any Work read. Discovery may perform only bounded exact
+metadata lookups within that same authorized scope; it may not sweep account
+history. The trigger payload can never set a page, target, entitlement, search
+string, callback, or user-facing reply. The adapter preserves the authoritative
+title and completed-answer gates even when the wake arrives correctly. Nothing
+in this code provisions a live worker or grants it Work access.
+
+Synthetic C# exercises the isolated event schema, dispatch, exact pending
+lookup, and legacy subscription preservation; Node exercises scope, stale
+events, and no reads from forged event data.

@@ -72,3 +72,34 @@ export async function serviceOneWorkRequest(host) {
     await host.resolveAnswer({ ...key, state: "available", ...answer });
     return "answer_resolved";
 }
+
+// Trusted platform event delivery is just a wake-up. Ignore every user-controlled
+// routing field and retrieve the exact pending operation over the authenticated
+// worker connection before deciding what to read. The host owns the allowlist.
+export async function serviceWorkWake(wake, host) {
+    const operation = wake?.data?.operation_id;
+    if (wake?.name !== "work.retrieval.requested" || wake?.data?.channel_id !== "hagoromo-work-retrieval" ||
+        typeof operation !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(operation))
+        return "invalid_wake";
+    const pending = await host.getPending(operation);
+    if (!pending || pending.operation_id !== operation) return "stale_wake";
+    const scoped = {
+        next: async () => pending,
+        workMetadata: async () => {
+            const accepted = [];
+            const scope = await host.discoveryScope();
+            for (const threadId of [...new Set(scope)].slice(0, 25)) {
+                if (!id(threadId) || !await host.allowedWork(threadId)) continue;
+                const record = await host.exactWorkMetadata(threadId);
+                if (record?.threadId === threadId && verifiedWorkTitle(record)) accepted.push(record);
+            }
+            return accepted;
+        },
+        readWork: async threadId => await host.allowedWork(threadId)
+            ? await host.readWork(threadId) : { state: "not_authorized" },
+        resolveDiscovery: data => host.resolveDiscovery(data),
+        resolveChoices: data => host.resolveChoices(data),
+        resolveAnswer: data => host.resolveAnswer(data)
+    };
+    return serviceOneWorkRequest(scoped);
+}

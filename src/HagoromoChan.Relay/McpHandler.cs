@@ -11,6 +11,10 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
 
     public const string EventName = "message.created";
     public const string SupportedChannel = "hagoromo-mini";
+    public const string WorkWakeEvent = "work.retrieval.requested";
+    public const string WorkWakeChannel = "hagoromo-work-retrieval";
+    private Subscription? workWakeSubscription;
+    internal Subscription? WorkWakeSubscription => Volatile.Read(ref workWakeSubscription);
     private const string LatestProtocol = "2025-11-25";
     private static readonly TimeSpan SubscriptionLifetime = TimeSpan.FromDays(7);
     private readonly SemaphoreSlim subscriptionGate = new(1, 1);
@@ -172,8 +176,13 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         tools.Add(new
         {
             name = "get_pending_work_retrieval",
-            description = "Read the next explicit Windows SSP Work transcript request. Only an authorized Work reader should call this.",
-            inputSchema = new { type = "object", properties = new { }, additionalProperties = false },
+            description = "Read an explicit SSP Work request. Triggered workers must pass the exact wake operation_id. Only authorized Work readers may call.",
+            inputSchema = new
+            {
+                type = "object",
+                properties = new { operation_id = new { type = "string" } },
+                additionalProperties = false
+            },
             annotations = new { readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false }
         });
         tools.Add(new
@@ -296,8 +305,9 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
     {
         if (name == "get_pending_work_retrieval")
         {
-            ValidateProperties(arguments, []);
-            var item = WorkPull.Next();
+            ValidateProperties(arguments, ["operation_id"]);
+            var exact = arguments.TryGetProperty("operation_id", out _) ? RequiredString(arguments, "operation_id") : null;
+            var item = WorkPull.Next(exact);
             return WorkToolResult(new { pending = item is null ? null : new
             {
                 operation_id = item.OperationId, action = item.Action, source_id = item.SourceId, conversation_id = item.ConversationId, message_id = item.MessageId
@@ -415,7 +425,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         ValidateCursor(parameters);
         return new
         {
-            events = new[]
+            events = new object[]
             {
                 new
                 {
@@ -465,6 +475,28 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
                         required = new[] { "request_id", "channel_id", "text", "in_reply_to", "context" },
                         additionalProperties = false
                     }
+                },
+                new
+                {
+                    name = WorkWakeEvent,
+                    description = "An explicit SSP Work retrieval operation is pending. The payload is a wake hint only.",
+                    delivery = new[] { "webhook" },
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new { channel_id = new { type = "string", @enum = new[] { WorkWakeChannel } } },
+                        required = new[] { "channel_id" }, additionalProperties = false
+                    },
+                    payloadSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            channel_id = new { type = "string", @enum = new[] { WorkWakeChannel } },
+                            operation_id = new { type = "string" }
+                        },
+                        required = new[] { "channel_id", "operation_id" }, additionalProperties = false
+                    }
                 }
             }
         };
@@ -482,7 +514,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             lifetime = TimeSpan.FromMilliseconds(Math.Min(milliseconds, (long)SubscriptionLifetime.TotalMilliseconds));
         }
 
-        var subscription = new Subscription(SubscriptionId(callback.Url), callback.Url, callback.Secret!, DateTimeOffset.UtcNow.Add(lifetime));
+        var subscription = new Subscription(SubscriptionId(callback.Url, callback.Event), callback.Url, callback.Secret!, DateTimeOffset.UtcNow.Add(lifetime));
         try
         {
             WebhookClient.ValidateSubscription(subscription);
@@ -495,7 +527,10 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         await subscriptionGate.WaitAsync(cancellationToken);
         try
         {
-            var previous = store.GetSubscription();
+            var isWork = callback.Event == WorkWakeEvent;
+            var previous = isWork ? WorkWakeSubscription : store.GetSubscription();
+            if (isWork && previous is not null && previous.RefreshBefore > DateTimeOffset.UtcNow && previous.Id != subscription.Id)
+                throw new ConflictException("The Work wake subscription has an active owner.");
             try
             {
                 await webhooks.VerifyAsync(subscription, cancellationToken);
@@ -506,8 +541,12 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             }
             // Start the granted lifetime after verification, which can involve a network request.
             subscription = subscription with { RefreshBefore = DateTimeOffset.UtcNow.Add(lifetime) };
-            store.SaveSubscription(subscription);
-            webhooks.RememberSecretRotation(previous, subscription);
+            if (isWork) Volatile.Write(ref workWakeSubscription, subscription);
+            else
+            {
+                store.SaveSubscription(subscription);
+                webhooks.RememberSecretRotation(previous, subscription);
+            }
             return new { id = subscription.Id, refreshBefore = subscription.RefreshBefore, cursor = (string?)null, truncated = false };
         }
         finally
@@ -522,7 +561,12 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         await subscriptionGate.WaitAsync(cancellationToken);
         try
         {
-            store.Unsubscribe(SubscriptionId(callback.Url));
+            var id = SubscriptionId(callback.Url, callback.Event);
+            if (callback.Event == WorkWakeEvent)
+            {
+                if (WorkWakeSubscription?.Id == id) Volatile.Write(ref workWakeSubscription, null);
+            }
+            else store.Unsubscribe(id);
             return new { };
         }
         finally
@@ -531,13 +575,14 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         }
     }
 
-    private (string Url, string? Secret) ValidateEventParameters(JsonElement parameters, bool requireSecret)
+    private (string Event, string Url, string? Secret) ValidateEventParameters(JsonElement parameters, bool requireSecret)
     {
-        if (RequiredString(parameters, "name") != EventName)
+        var eventName = RequiredString(parameters, "name");
+        if (eventName is not (EventName or WorkWakeEvent))
             throw InvalidParams("Unknown event.");
         var arguments = RequiredObject(parameters, "arguments");
         ValidateProperties(arguments, ["channel_id"]);
-        if (RequiredString(arguments, "channel_id") != store.ChannelId)
+        if (RequiredString(arguments, "channel_id") != (eventName == WorkWakeEvent ? WorkWakeChannel : store.ChannelId))
             throw InvalidParams("Unknown channel.");
         var delivery = RequiredObject(parameters, "delivery");
         if (RequiredString(delivery, "mode") != "webhook")
@@ -552,13 +597,14 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         {
             throw InvalidParams("The callback URL is invalid.");
         }
-        return (url, secret);
+        return (eventName, url, secret);
     }
 
-    private string SubscriptionId(string callbackUrl)
+    private string SubscriptionId(string callbackUrl, string eventName)
     {
         // Each relay has one authenticated owner. Channel and event complete its subscription identity.
-        var identity = callbackUrl + "\n" + EventName + "\n" + store.ChannelId;
+        var identity = callbackUrl + "\n" + eventName + "\n" +
+            (eventName == WorkWakeEvent ? WorkWakeChannel : store.ChannelId);
         return "sub_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
 

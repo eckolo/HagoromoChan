@@ -121,12 +121,15 @@ public sealed class WorkRetrieval(ChatStore store)
         }
     }
 
-    public WorkPullRequest? Next()
+    public WorkPullRequest? Next(string? operationId = null) =>
+        PendingRequests().FirstOrDefault(p => operationId is null || p.OperationId == operationId);
+
+    public WorkPullRequest[] PendingRequests()
     {
         lock (gate)
         {
             Expire();
-            return pending.Values.FirstOrDefault(p => p.Status.State == "pending")?.Request;
+            return pending.Values.Where(p => p.Status.State == "pending").Select(p => p.Request).ToArray();
         }
     }
 

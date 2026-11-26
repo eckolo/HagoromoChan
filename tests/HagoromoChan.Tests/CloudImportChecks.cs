@@ -78,6 +78,79 @@ internal static class CloudImportChecks
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
     }
 
+    public static void WorkWake() => WorkWakeAsync().GetAwaiter().GetResult();
+
+    private static async Task WorkWakeAsync()
+    {
+        using var store = new ChatStore(":memory:");
+        using var webhooks = new FixtureWorkWebhook();
+        var handler = new McpHandler(store, webhooks);
+        var dispatcher = new WorkWakeDispatcher(handler, webhooks);
+        var dot = new Subscription("sub_fixture_dot", "https://fixture.example.test/dot",
+            "fixture-dot", DateTimeOffset.UtcNow.AddHours(1));
+        store.SaveSubscription(dot);
+        var originalDot = store.GetSubscription();
+        async Task<JsonElement> Call(string method, object parameters)
+        {
+            var request = JsonSerializer.SerializeToElement(new { jsonrpc = "2.0", id = 1, method, @params = parameters });
+            return JsonSerializer.SerializeToElement(await handler.HandleAsync(request, CancellationToken.None));
+        }
+
+        var eventList = (await Call("events/list", new { })).GetProperty("result").GetProperty("events");
+        Must(eventList.EnumerateArray().Any(item => item.GetProperty("name").GetString() == McpHandler.EventName),
+            "Dot message event is still advertised");
+        var spec = eventList.EnumerateArray().Single(item => item.GetProperty("name").GetString() == McpHandler.WorkWakeEvent);
+        Must(spec.GetProperty("payloadSchema").GetProperty("properties").EnumerateObject()
+            .Select(p => p.Name).ToHashSet().SetEquals(new[] { "channel_id", "operation_id" }),
+            "Work wake schema exposes only an operation ID and a dedicated channel");
+
+        var pull = handler.WorkPull.Discover();
+        await dispatcher.DispatchOnceAsync(CancellationToken.None);
+        Must(webhooks.Sent.Count == 0, "No wake before separate subscription");
+        var url = "https://fixture.example.test/work";
+        var subscribe = await Call("events/subscribe", new
+        {
+            name = McpHandler.WorkWakeEvent, arguments = new { channel_id = McpHandler.WorkWakeChannel },
+            delivery = new { mode = "webhook", url, secret = "whsec_" + Convert.ToBase64String(new byte[32]) }
+        });
+        Must(subscribe.TryGetProperty("result", out _), "Separate Work webhook accepted");
+        Must(store.GetSubscription() == originalDot, "Work subscribe does not replace Dot");
+        await dispatcher.DispatchOnceAsync(CancellationToken.None);
+        await dispatcher.DispatchOnceAsync(CancellationToken.None);
+        Must(webhooks.Sent.SequenceEqual(new[] { (url, pull.OperationId) }), "One wake for the exact pending operation");
+
+        async Task<JsonElement> Pending(string id) =>
+            (await Call("tools/call", new { name = "get_pending_work_retrieval", arguments = new { operation_id = id } }))
+                .GetProperty("result").GetProperty("structuredContent").GetProperty("pending");
+
+        Must((await Pending(Guid.NewGuid().ToString("D"))).ValueKind == JsonValueKind.Null &&
+            (await Pending(pull.OperationId)).GetProperty("operation_id").GetString() == pull.OperationId,
+            "An unrelated wake ID cannot claim the head of the pending queue");
+        handler.WorkPull.CompleteDiscovery(pull.OperationId, []);
+        Must((await Pending(pull.OperationId)).ValueKind == JsonValueKind.Null, "Completed wakes cannot access a request");
+        var unsubscribe = await Call("events/unsubscribe", new
+        {
+            name = McpHandler.WorkWakeEvent, arguments = new { channel_id = McpHandler.WorkWakeChannel },
+            delivery = new { mode = "webhook", url }
+        });
+        Must(unsubscribe.TryGetProperty("result", out _) && store.GetSubscription() == originalDot,
+            "Work unsubscribe also leaves Dot subscription intact");
+        _ = handler.WorkPull.Discover();
+        await dispatcher.DispatchOnceAsync(CancellationToken.None);
+        Must(webhooks.Sent.Count == 1, "No wake after isolated Work unsubscribe");
+    }
+
+    private sealed class FixtureWorkWebhook : WebhookClient
+    {
+        public List<(string Url, string OperationId)> Sent { get; } = [];
+        public override Task VerifyAsync(Subscription subscription, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override Task SendWorkWakeAsync(Subscription subscription, string operationId, CancellationToken cancellationToken)
+        {
+            Sent.Add((subscription.CallbackUrl, operationId));
+            return Task.CompletedTask;
+        }
+    }
+
     public static void DefaultMcp() => DefaultMcpAsync().GetAwaiter().GetResult();
 
     private static async Task DefaultMcpAsync()

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { verifiedWorkTitle, verifiedCompletedWorkAnswer, serviceOneWorkRequest } from "./m05-work-reader.mjs";
+import { verifiedWorkTitle, verifiedCompletedWorkAnswer, serviceOneWorkRequest, serviceWorkWake } from "./m05-work-reader.mjs";
 
 const thread = "work_real_fixture";
 const turn = { status: "completed", id: "turn_completed", completedAt: 1234 };
@@ -49,3 +49,37 @@ host.next = async () => ({ operation_id: key.operation_id, action: "discover" })
 assert.equal(await serviceOneWorkRequest(host), "discovery_resolved");
 assert.deepEqual(response.choices, [{ conversation_id: thread, title: "Verified title" }]);
 console.log("PASS authorized Work reader validation and operation dispatch");
+
+const operation = "11111111-2222-4333-8444-555555555555";
+const wake = { name: "work.retrieval.requested", data: { channel_id: "hagoromo-work-retrieval",
+    operation_id: operation, source_id: "must_not_grant_access", conversation_id: "unauthorized" } };
+let reads = 0;
+const safeHost = {
+    ...host,
+    getPending: async id => { assert.equal(id, operation); return { ...key, operation_id: operation, action: "selected_answer", message_id: item.id }; },
+    allowedWork: async id => id === thread,
+    readWork: async id => { reads++; return host.readWork(id); }
+};
+assert.equal(await serviceWorkWake(wake, safeHost), "answer_resolved");
+assert.equal(reads, 1);
+assert.equal(response.conversation_id, thread);
+assert.equal(await serviceWorkWake(wake, { ...safeHost, allowedWork: async () => false }), "access_failed");
+assert.equal(reads, 1);
+assert.equal(response.state, "not_authorized");
+assert.equal(await serviceWorkWake(wake, { ...safeHost, getPending: async () => key }), "stale_wake");
+assert.equal(await serviceWorkWake({ ...wake, name: "message.created" }, safeHost), "invalid_wake");
+assert.equal(reads, 1);
+let metadataReads = 0;
+assert.equal(await serviceWorkWake(wake, {
+    ...safeHost,
+    getPending: async () => ({ operation_id: operation, action: "discover" }),
+    discoveryScope: async () => [thread, "unauthorized"],
+    exactWorkMetadata: async id => {
+        metadataReads++;
+        assert.equal(id, thread);
+        return { threadId: id, product: "ChatGPT Work", metadata: record };
+    }
+}), "discovery_resolved");
+assert.equal(metadataReads, 1);
+assert.deepEqual(response.choices, [{ conversation_id: thread, title: "Verified title" }]);
+console.log("PASS scoped Work event wakes and no event data grants reads");

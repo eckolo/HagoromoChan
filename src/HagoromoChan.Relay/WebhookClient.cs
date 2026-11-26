@@ -127,6 +127,20 @@ public class WebhookClient : IDisposable
         await PostAsync(delivery.Subscription, delivery.EventId, body, readResponse: false, cancellationToken);
     }
 
+    public virtual async Task SendWorkWakeAsync(Subscription subscription, string operationId,
+        CancellationToken cancellationToken)
+    {
+        var eventId = "work_" + operationId;
+        var body = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            eventId,
+            name = McpHandler.WorkWakeEvent,
+            timestamp = DateTimeOffset.UtcNow,
+            data = new { channel_id = McpHandler.WorkWakeChannel, operation_id = operationId }
+        });
+        await PostAsync(subscription, eventId, body, readResponse: false, cancellationToken);
+    }
+
     private static object[] BuildInlineContext(PendingDelivery delivery)
     {
         var messages = new List<object>();
