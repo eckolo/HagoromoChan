@@ -42,7 +42,8 @@ internal sealed class DesktopPanels
     private readonly TextBlock _probeBlock = Label("");
     private readonly Dictionary<string, IReadOnlyList<TextSlice>> _historyPages = new(StringComparer.Ordinal);
     private readonly StackPanel _statusContent = new();
-    private readonly Action<string> _markRead;
+    private readonly Action<IReadOnlyList<string>> _markRead;
+    private bool _activatingComposer;
     private bool _attached;
     private bool _closing;
     private bool _arranging;
@@ -67,9 +68,9 @@ internal sealed class DesktopPanels
     private double _historyMaximum;
     private OverlaySide _side = OverlaySide.Right;
     private readonly List<HistoryCardKey> _renderedKeys = [];
-    private readonly Dictionary<HistoryCardKey, DockPanel> _cards = [];
+    private readonly Dictionary<HistoryCardKey, (DockPanel Card, Button Read)> _cards = [];
     private readonly record struct HistoryCardKey(string Id, int Start, int Length, double Height,
-        int Page, int PageCount, double Width, OverlaySide Side, bool Unread);
+        int Page, int PageCount, double Width, OverlaySide Side);
     private DockPanel? _composerBubble;
 
     public Window Conversation { get; }
@@ -100,7 +101,7 @@ internal sealed class DesktopPanels
     public Button OpenInputButton { get; } = ActionButton("入力");
     public Button UnreadButton { get; } = ActionButton("新着");
 
-    public DesktopPanels(Window owner, Action dismissAll, Action openUnread, Action<string> markRead, Action openComposer)
+    public DesktopPanels(Window owner, Action dismissAll, Action openUnread, Action<IReadOnlyList<string>> markRead, Action openComposer)
     {
         _owner = owner;
         _markRead = markRead;
@@ -168,9 +169,14 @@ internal sealed class DesktopPanels
         _conversationRoot.Children.Add(_navFrame);
         _conversationRoot.VerticalAlignment = VerticalAlignment.Bottom;
         Conversation = Surface("会話", _conversationRoot, dismissAll);
+        Conversation.Activated += (_, _) =>
+        {
+            if (!_activatingComposer && HistoryOpen)
+                QueueHistoryRead(HistoryReadGesture.Activation, [], ignoreComposerFocus: false);
+        };
         Conversation.PreviewMouseWheel += (_, e) =>
         {
-            if (!HistoryOpen || _history.Length == 0 || _composing)
+            if (!HistoryOpen || _history.Length == 0 || _composing || _composerBubble?.IsMouseOver == true)
                 return;
             _wheelRemainder += e.Delta;
             while (Math.Abs(_wheelRemainder) >= 120)
@@ -239,10 +245,10 @@ internal sealed class DesktopPanels
         if (Conversation.IsVisible && HistoryOpen)
         {
             foreach (var key in _renderedKeys)
-                if (key.Unread && _unread.Contains(key.Id) && _cards.TryGetValue(key, out var card)
-                    && card.IsVisible && card.IsArrangeValid)
+                if (_unread.Contains(key.Id) && _cards.TryGetValue(key, out var entry)
+                    && entry.Card.IsVisible && entry.Card.IsArrangeValid)
                 {
-                    target = card;
+                    target = entry.Card;
                     break;
                 }
         }
@@ -298,8 +304,13 @@ internal sealed class DesktopPanels
         VisibilityChanged?.Invoke();
         if (activate && ComposerOpen && Conversation.IsVisible)
         {
-            Conversation.Activate();
-            MessageInput.Focus();
+            _activatingComposer = true;
+            try
+            {
+                Conversation.Activate();
+                MessageInput.Focus();
+            }
+            finally { _activatingComposer = false; }
         }
     }
 
@@ -315,6 +326,17 @@ internal sealed class DesktopPanels
 
     // Receiving a reply opens history, never forces the input open or closed.
     public void ShowMessage(string id) => SetConversation(_visibility with { History = true }, false, id);
+
+    public void OpenUnreadMessage(string id)
+    {
+        ShowMessage(id);
+        if (!HistoryOpen || !Conversation.IsVisible || !_renderedKeys.Any(key => key.Id == id))
+            return;
+        // Unlike a receive, the status button explicitly asks to read history.
+        // It also works if the shared window was already active for input.
+        if (Conversation.IsActive || Conversation.Activate())
+            QueueHistoryRead(HistoryReadGesture.Activation, [], ignoreComposerFocus: true);
+    }
 
     public void CopyStatus() => Copy(string.Join(Environment.NewLine,
         new[] { ConnectionText.Text, QueueText.Text, ConnectionErrorText.Text, StatusDetail.Text, RuntimeDetail.Text }));
@@ -491,9 +513,50 @@ internal sealed class DesktopPanels
             ? HistoryNavigation.Older(position, i => Pages(i).Count)
             : HistoryNavigation.Newer(position, _history.Length, i => Pages(i).Count);
         if (next is not { } target) return;
+        var before = RenderedHistoryPages();
         SetAnchor(_history[target.Message].Id, Pages(target.Message)[target.Page].Start);
         Arrange();
+        QueueHistoryRead(HistoryReadGesture.Navigation, before, ignoreComposerFocus: true);
         VisibilityChanged?.Invoke();
+    }
+
+    private HistoryPageIdentity[] RenderedHistoryPages() =>
+        _renderedKeys.Select(key => new HistoryPageIdentity(key.Id, key.Start, key.Length)).ToArray();
+
+    private void QueueHistoryRead(HistoryReadGesture gesture, HistoryPageIdentity[] before, bool ignoreComposerFocus)
+    {
+        if (_closing || !Conversation.IsVisible || !HistoryOpen)
+            return;
+        // Remember only pages offered by this gesture. A pending receive/layout
+        // cannot expand the set before WPF commits the arrange.
+        var offered = RenderedHistoryPages();
+        if (offered.Length == 0 || (gesture == HistoryReadGesture.Navigation && before.SequenceEqual(offered)))
+            return;
+        Conversation.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (_closing || !Conversation.IsVisible || !HistoryOpen)
+                return;
+            var composerFocused = !ignoreComposerFocus && _composerBody.IsKeyboardFocusWithin;
+            var active = Conversation.IsActive;
+            var laidOut = _renderedKeys.Where(key =>
+                _cards.TryGetValue(key, out var entry) && IsLaidOutHistoryCard(entry.Card))
+                .Select(key => new HistoryPageIdentity(key.Id, key.Start, key.Length)).ToHashSet();
+            var targets = HistoryReadPolicy.Targets(gesture, active, composerFocused, before, offered,
+                laidOut, _unread);
+            if (targets.Length > 0)
+                _markRead(targets);
+        }));
+    }
+
+    private bool IsLaidOutHistoryCard(FrameworkElement card)
+    {
+        if (!card.IsVisible || !card.IsArrangeValid || card.ActualWidth <= 0 || card.ActualHeight <= 0
+            || PresentationSource.FromVisual(card) is null)
+            return false;
+        var origin = card.TranslatePoint(new Point(0, 0), Conversation);
+        // An overflowed/clipped card is not evidence of viewing.
+        return origin.X >= -1 && origin.X + card.ActualWidth <= Conversation.ActualWidth + 1
+            && origin.Y >= -1 && origin.Y + card.ActualHeight <= Conversation.ActualHeight + 1;
     }
 
     private void ClearHistory()
@@ -540,7 +603,7 @@ internal sealed class DesktopPanels
             var pages = Pages(position.Message);
             var page = pages[position.Page];
             return (Position: position, Key: new HistoryCardKey(message.Id, page.Start, page.Length,
-                page.Height, position.Page, pages.Count, width, side, _unread.Contains(message.Id)));
+                page.Height, position.Page, pages.Count, width, side));
         }).ToArray();
         var keys = desired.Select(item => item.Key).ToArray();
         var positions = desired.ToDictionary(item => item.Key, item => item.Position);
@@ -553,20 +616,22 @@ internal sealed class DesktopPanels
                 _renderedKeys.RemoveAt(edit.Index);
                 continue;
             }
-            if (!_cards.TryGetValue(edit.Item, out var card))
+            if (!_cards.TryGetValue(edit.Item, out var entry))
             {
-                card = BuildHistoryCard(positions[edit.Item], bodyWidth, side, chrome);
-                _cards.Add(edit.Item, card);
+                entry = BuildHistoryCard(positions[edit.Item], bodyWidth, side, chrome);
+                _cards.Add(edit.Item, entry);
             }
-            _historyStack.Children.Insert(edit.Index, card);
+            _historyStack.Children.Insert(edit.Index, entry.Card);
             _renderedKeys.Insert(edit.Index, edit.Item);
         }
+        foreach (var key in keys)
+            _cards[key].Read.Visibility = _unread.Contains(key.Id) ? Visibility.Visible : Visibility.Collapsed;
         var retained = keys.ToHashSet();
         foreach (var key in _cards.Keys.Where(key => !retained.Contains(key)).ToArray())
             _cards.Remove(key);
     }
 
-    private DockPanel BuildHistoryCard(HistoryPosition p, double bodyWidth, OverlaySide side, double chrome)
+    private (DockPanel Card, Button Read) BuildHistoryCard(HistoryPosition p, double bodyWidth, OverlaySide side, double chrome)
     {
             var message = _history[p.Message];
             var pages = Pages(p.Message);
@@ -581,12 +646,10 @@ internal sealed class DesktopPanels
             var copy = SymbolButton("⧉", "この発言の全文をコピー", () => Copy(message.Text));
             DockPanel.SetDock(copy, Dock.Right);
             header.Children.Add(copy);
-            if (_unread.Contains(message.Id))
-            {
-                var read = SymbolButton("✓", "この回答を既読にする", () => _markRead(message.Id));
-                DockPanel.SetDock(read, Dock.Right);
-                header.Children.Add(read);
-            }
+            var read = SymbolButton("✓", "この回答を既読にする", () => _markRead([message.Id]));
+            read.Visibility = Visibility.Collapsed;
+            DockPanel.SetDock(read, Dock.Right);
+            header.Children.Add(read);
             var label = Label(title, 12);
             label.FontWeight = FontWeights.SemiBold;
             label.VerticalAlignment = VerticalAlignment.Center;
@@ -604,7 +667,7 @@ internal sealed class DesktopPanels
             var bubble = Bubble(content, user ? UserPaper : AssistantPaper, user ? Opposite(side) : side);
             bubble.Height = slice.Height + chrome - Gap;
             bubble.Margin = new Thickness(0, 0, 0, Gap);
-            return bubble;
+            return (bubble, read);
     }
 
     private double MeasureText(string text, double width)

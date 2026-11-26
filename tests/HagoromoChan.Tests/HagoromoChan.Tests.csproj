@@ -8,6 +8,7 @@
     <Compile Include="../../src/HagoromoChan.Desktop/DesktopPreferences.cs" Link="Desktop/DesktopPreferences.cs" />
     <Compile Include="../../src/HagoromoChan.Desktop/CharacterReactionState.cs" Link="Desktop/CharacterReactionState.cs" />
     <Compile Include="../../src/HagoromoChan.Desktop/CursorGaze.cs" Link="Desktop/CursorGaze.cs" />
+    <Compile Include="../../src/HagoromoChan.Desktop/HistoryReadPolicy.cs" Link="Desktop/HistoryReadPolicy.cs" />
     <Compile Include="../../src/HagoromoChan.Desktop/TextPaging.cs" Link="Desktop/TextPaging.cs" />
   </ItemGroup>
 </Project>
