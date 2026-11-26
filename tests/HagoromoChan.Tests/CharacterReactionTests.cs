@@ -65,86 +65,73 @@ internal static class CharacterReactionTests
         var state = new CharacterReactionState();
         Check(state.Sample(0).Pose == ReactionPose.Idle, "initial idle");
         state.ConversationChanged(false, true, 10);
-        Check(state.Sample(20).Pose == ReactionPose.Wave, "click");
         state.SendAccepted("own-1", 30);
-        Check(state.Sample(31).Pose == ReactionPose.Review, "send preempts click");
         state.Fail(40);
-        Check(state.Sample(41).Pose == ReactionPose.Failed, "definite failed operation");
-        state.Receive([Row(1, "reply", "own-1"), Row(2, "proactive_1")], 50);
-        Check(state.Sample(55).Pose == ReactionPose.Jump, "one jump for a complete batch");
-        Check(state.Sample(700).Pose == ReactionPose.Idle, "single batch does not queue a second jump");
-        state.ConversationChanged(false, true, 710);
-        Check(state.Sample(710).Pose == ReactionPose.Idle, "repeated click cooldown");
+        state.Receive([Row(1, "reply", "own-1"), Row(2, "proactive-1")], 50);
+        state.Receive([Row(3, "burst")], 60);
+        Check(!state.WaitingForReply, "message bookkeeping is immediate despite the animation queue");
+        Check(state.Sample(609).Pose == ReactionPose.Wave, "opening completes before a later event");
+        Check(state.Sample(610).Pose == ReactionPose.Review, "send accepted in event order");
+        Check(state.Sample(1409).Pose == ReactionPose.Review, "a failure and a new reply do not interrupt");
+        Check(state.Sample(1410).Pose == ReactionPose.Failed, "failure next");
+        Check(state.Sample(2210).Pose == ReactionPose.Jump, "one jump for a full batch and pending burst");
+        Check(state.Sample(2860).Pose == ReactionPose.Idle, "no duplicate jump");
+        state.SendAccepted("own-1", 3000);
+        Check(state.Sample(3000).Pose == ReactionPose.Idle && !state.WaitingForReply, "acceptance deduplicates through completion");
 
-        state.Suspend(true, 1000);
-        state.ConversationChanged(false, true, 1020);
-        state.SendAccepted("own-2", 1030);
-        state.Receive([Row(3, "reply-2", "own-2")], 1040);
-        Check(state.Sample(1080).Pose == ReactionPose.Still, "interaction keeps a stable frame");
-        state.Suspend(false, 1100);
-        Check(state.Sample(1100).Pose == ReactionPose.Jump, "highest priority pending reaction");
-        Check(state.Sample(1800).Pose == ReactionPose.Idle, "a single pending slot");
-        state.Suspend(true, 2000);
-        state.Receive([Row(4, "proactive_2")], 2010);
-        state.Suspend(false, 4100);
-        Check(state.Sample(4100).Pose == ReactionPose.Idle, "expired reaction after a long drag");
+        var pending = new CharacterReactionState();
+        pending.Suspend(true, 0);
+        pending.ConversationChanged(false, true, 10);
+        pending.SendAccepted("full", 20);
+        pending.Fail(30);
+        pending.Receive([Row(4, "one")], 40);
+        pending.Fail(50); // drop old queued greeting before dropping an event
+        pending.Fail(60); // now full; skip only this incoming animation
+        Check(pending.Sample(90).Pose == ReactionPose.Still, "interaction renders still");
+        pending.Suspend(false, 100);
+        Check(pending.Sample(100).Pose == ReactionPose.Review, "older greeting is the overflow victim");
+        Check(pending.Sample(900).Pose == ReactionPose.Failed, "remaining order is stable");
+        Check(pending.Sample(1700).Pose == ReactionPose.Jump, "jump remains queued");
+        Check(pending.Sample(2350).Pose == ReactionPose.Failed, "fourth event retained");
+        Check(pending.Sample(3150).Pose == ReactionPose.Thinking, "extra finite event was not replayed");
+        pending.Stop();
+        pending.SendAccepted("late", 4000);
+        Check(!pending.WaitingForReply && pending.Sample(4001).Pose == ReactionPose.Still, "shutdown ignores callbacks");
 
-        state.Receive([Row(5, "a")], 4200);
-        state.Receive([Row(6, "b")], 4250);
-        state.Receive([Row(7, "c")], 4300);
-        Check(state.Sample(4850).Pose == ReactionPose.Jump, "burst coalesces into one more jump");
-        Check(state.Sample(5500).Pose == ReactionPose.Idle, "no third jump");
-        state.Stop();
-        state.SendAccepted("late", 6000);
-        state.Suspend(false, 6000);
-        state.Receive([Row(8, "late-reply")], 6100);
-        Check(!state.WaitingForReply && state.Sample(6200).Pose == ReactionPose.Still,
-            "closing discards pending work and ignores later callbacks");
+        var aging = new CharacterReactionState();
+        aging.Suspend(true, 0);
+        aging.Receive([Row(5, "original")], 10);
+        aging.Receive([Row(6, "coalesced")], 1500);
+        aging.Suspend(false, 3010);
+        Check(aging.Sample(3010).Pose == ReactionPose.Idle, "coalescing never extends the original queue lifetime");
     }
 
     public static void ConversationGestures()
     {
         var state = new CharacterReactionState();
         state.ConversationChanged(false, false, 0);
-        state.ConversationChanged(true, true, 10);
-        Check(state.Sample(20).Pose == ReactionPose.Idle, "failure or a remaining conversation surface is silent");
+        Check(state.Sample(20).Pose == ReactionPose.Idle, "a no-op does not greet");
         state.ConversationChanged(false, true, 50);
-        Check(state.Sample(100) is { Pose: ReactionPose.Wave, DurationMs: 600 }, "opening preserves the wave");
         state.ConversationChanged(true, false, 200);
-        Check(state.Sample(205) is { Pose: ReactionPose.Farewell, ElapsedMs: 5, DurationMs: 700 },
-            "closing before the opening wave ends immediately uses a smaller wave");
-        state.ConversationChanged(true, false, 220);
-        Check(state.Sample(225).ElapsedMs == 25, "a duplicate close does not restart a wave");
-        state.ConversationChanged(false, true, 300);
-        Check(state.Sample(305).Pose == ReactionPose.Wave, "immediate reopening replaces farewell");
-        state.ConversationChanged(true, false, 365);
-        state.ConversationChanged(false, true, 395, waveOnOpen: false);
-        Check(state.Sample(400).Pose == ReactionPose.Idle, "reopening from a panel ends farewell without an opening wave");
+        Check(state.Sample(205).Pose == ReactionPose.Wave, "closing does not cut an active finite wave");
+        state.ConversationChanged(false, true, 300, waveOnOpen: false);
+        Check(state.Sample(649).Pose == ReactionPose.Wave, "opening wave still completes");
+        Check(state.Sample(650).Pose == ReactionPose.Idle, "reopening discards the stale queued closing animation");
 
         state.SetUnread(true, 1000);
         state.ConversationChanged(true, false, 1050);
+        state.ConversationChanged(true, false, 1060);
         Check(state.Sample(1749).Pose == ReactionPose.Farewell && state.Sample(1750).Pose == ReactionPose.Unread,
-            "closing ends the gesture without acknowledging unread");
+            "one closing animation does not acknowledge unread");
         state.SendAccepted("awaited", 1800);
-        state.ConversationChanged(true, false, 1850);
-        Check(state.Sample(1860).Pose == ReactionPose.Review && state.Sample(2600).Pose == ReactionPose.Thinking,
-            "send acknowledgement wins, no stale farewell is queued");
-        state.Receive([Row(1, "reply", "awaited")], 2700);
-        state.ConversationChanged(false, true, 2740);
-        state.ConversationChanged(true, false, 2780);
-        Check(state.Sample(2790).Pose == ReactionPose.Jump && state.Sample(3350).Pose == ReactionPose.Unread,
-            "incoming reply wins both transitions");
-        state.Suspend(true, 3400);
-        state.ConversationChanged(true, false, 3500);
-        state.Suspend(false, 3650);
-        Check(state.Sample(3650).Pose == ReactionPose.Unread, "a suspended gesture is never deferred by playback");
-        state.SetEnabled(false, 3800);
-        state.ConversationChanged(true, false, 3900);
-        Check(state.Sample(3930).Pose == ReactionPose.Still, "animation off");
-        state.SetEnabled(true, 4000);
-        state.Stop();
-        state.ConversationChanged(false, true, 4100);
-        Check(state.Sample(4100).Pose == ReactionPose.Still, "closing the app stays still");
+        state.ConversationChanged(false, true, 1900);
+        state.ObserveVisibility(false); // a non-greeting path closes it before the queued opening plays
+        Check(state.Sample(2600).Pose == ReactionPose.Thinking, "passive visibility is also a stale-greeting guard");
+        state.SetEnabled(false, 2650);
+        state.ConversationChanged(true, false, 2700);
+        Check(state.Sample(2701).Pose == ReactionPose.Still, "animation off");
+        state.SetEnabled(true, 2800);
+        Check(state.Sample(2800).Pose == ReactionPose.Thinking, "message state remains, queued reactions are gone");
     }
 
     public static void CloseDuringMessage()
@@ -155,47 +142,35 @@ internal static class CharacterReactionTests
             if (expected == ReactionPose.Jump) state.Receive([Row(1, "incoming")], 100);
             else if (expected == ReactionPose.Review) state.SendAccepted("own", 100);
             else state.Fail(100);
-            state.Suspend(true, 200, closingClick: true);
-            Check(state.Sample(250).Pose == ReactionPose.Still, "pointer down immediately freezes the image");
-            state.Suspend(false, 300, closingClick: true);
+            state.Suspend(true, 200);
+            Check(state.Sample(250).Pose == ReactionPose.Still, "short press or menu freezes immediately");
+            state.Suspend(false, 300);
             state.ConversationChanged(true, false, 300);
             var resumed = state.Sample(325);
-            Check(resumed.Pose == expected && resumed.ElapsedMs == 225, "a closing click preserves original elapsed time");
-            Check(state.Sample(100 + resumed.DurationMs).Pose is ReactionPose.Idle or ReactionPose.Thinking,
-                "the suppressed farewell never replays after the message");
+            Check(resumed.Pose == expected && resumed.ElapsedMs == 125, "resumes the same animation frame, not the wall clock");
+            Check(state.Sample(200 + resumed.DurationMs).Pose == ReactionPose.Farewell, "closure can only animate afterward");
         }
 
-        var priority = new CharacterReactionState();
-        priority.SendAccepted("pending", 0);
-        priority.Suspend(true, 100, closingClick: true);
-        priority.Receive([Row(2, "reply", "pending")], 150);
-        priority.Suspend(false, 200, closingClick: true);
-        priority.ConversationChanged(true, false, 200);
-        Check(priority.Sample(205) is { Pose: ReactionPose.Jump, ElapsedMs: 5 },
-            "arrival during press takes precedence over the held acknowledgement");
-        priority.Suspend(true, 300, closingClick: true);
-        priority.Suspend(false, 950, closingClick: true);
-        priority.ConversationChanged(true, false, 950);
-        Check(priority.Sample(951).Pose != ReactionPose.Jump, "a long hold cannot replay an expired jump");
-        var failure = new CharacterReactionState();
-        failure.Suspend(true, 1000, closingClick: true);
-        failure.Fail(1020);
-        failure.Suspend(false, 1100, closingClick: true);
-        failure.ConversationChanged(true, false, 1100);
-        Check(failure.Sample(1110).Pose == ReactionPose.Failed, "definite failure arriving during a close has priority");
+        var drag = new CharacterReactionState();
+        drag.SendAccepted("own", 0);
+        drag.Fail(50);
+        drag.Suspend(true, 100);
+        drag.Suspend(true, 125, dragging: true);
+        Check(drag.Sample(200).Pose == ReactionPose.Still, "drag cancels instantly");
+        drag.Suspend(false, 250);
+        Check(drag.Sample(251).Pose == ReactionPose.Thinking && drag.WaitingForReply, "no stale animation or request loss after drag");
 
-        foreach (var transition in new[] { "drag", "lost capture", "menu", "opening click" })
-        {
-            var state = new CharacterReactionState();
-            state.Receive([Row(3, "in-flight")], 0);
-            bool closes = transition != "opening click";
-            state.Suspend(true, 100, closingClick: closes);
-            if (transition is "drag" or "menu") state.Suspend(true, 130);
-            state.Suspend(false, 180);
-            if (transition == "opening click") state.ConversationChanged(false, true, 180);
-            Check(state.Sample(200).Pose == (closes ? ReactionPose.Idle : ReactionPose.Wave),
-                "no interrupted message resumes after " + transition);
-        }
+        var expired = new CharacterReactionState();
+        expired.Fail(0);
+        expired.Suspend(true, 100);
+        expired.Suspend(false, 1101);
+        Check(expired.Sample(1102).Pose == ReactionPose.Idle, "hold beyond one second does not replay");
+        var disabled = new CharacterReactionState();
+        disabled.Fail(0);
+        disabled.Receive([Row(1, "queued")], 10);
+        disabled.SetEnabled(false, 20);
+        disabled.SetEnabled(true, 30);
+        Check(disabled.Sample(31).Pose == ReactionPose.Idle, "motion off discards queue as well as active playback");
     }
 
     public static void Unread()
@@ -211,51 +186,35 @@ internal static class CharacterReactionTests
             state.Receive(inbox.ObserveCompletedRead(history, cursor), ms);
             state.SetUnread(saved.UnreadIds.Count > 0, ms);
         }
-
         Read(100);
-        var restored = state.Sample(100);
-        Check(restored.Pose == ReactionPose.Unread && restored.ElapsedMs == 0 && restored.AllowsGaze,
-            "first complete read restores quiet unread, without replaying arrival");
+        Check(state.Sample(100) is { Pose: ReactionPose.Unread, ElapsedMs: 0 }, "restore unread without replay");
         Read(1400);
-        Check(state.Sample(1470).ElapsedMs == 1370, "repeated poll preserves the unread phase");
-        history.Add(Row(2, "proactive_new"));
+        Check(state.Sample(1470).ElapsedMs == 1370, "unchanged polling does not restart");
+        history.Add(Row(2, "proactive"));
         Read(1500);
-        Check(state.Sample(1501).Pose == ReactionPose.Jump, "arrival interrupts unread");
-        Check(state.Sample(2150) is { Pose: ReactionPose.Unread, ElapsedMs: 2050 },
-            "additional unread ID does not restart the cycle");
+        Check(state.Sample(1501).Pose == ReactionPose.Jump, "quiet unread yields now");
+        Check(state.Sample(2150) is { Pose: ReactionPose.Unread, ElapsedMs: 0 }, "fresh loop after finite reaction");
         saved.UnreadIds.Remove("old");
         state.SetUnread(saved.UnreadIds.Count > 0, 2300);
-        Check(state.Sample(2350).ElapsedMs == 2250, "reading one of several preserves phase");
-        state.SendAccepted("own", 2500);
-        Check(state.Sample(2501).Pose == ReactionPose.Review && state.Sample(3310).Pose == ReactionPose.Thinking,
-            "local acceptance and waiting for a reply both take precedence");
-        state.ConversationChanged(false, true, 3500);
-        Check(state.Sample(3501).Pose == ReactionPose.Wave, "click takes precedence");
-        history.Add(Row(3, "answer", "own"));
-        Read(4500);
-        Check(state.Sample(4501).Pose == ReactionPose.Jump && state.Sample(5150).Pose == ReactionPose.Unread,
-            "matching reply settles request, then unread resumes");
-        Check(!CharacterReactionState.ShowsUnreadGlance(5999d / 7000)
-            && CharacterReactionState.ShowsUnreadGlance(6000d / 7000)
-            && CharacterReactionState.ShowsUnreadGlance(6999d / 7000)
-            && !CharacterReactionState.ShowsUnreadGlance(1),
-            "only the last second is reserved for a glance at the unread surface");
-        state.Suspend(true, 6800);
-        Check(state.Sample(6900).Pose == ReactionPose.Still, "drag and menus suppress unread");
-        state.Suspend(false, 7250);
-        Check(state.Sample(7250) is { Pose: ReactionPose.Unread, ElapsedMs: 150, DurationMs: 7000 },
-            "seven-second loop resumes at its continuing phase");
+        Check(state.Sample(2350).ElapsedMs == 200, "reading one of several does not reset a loop");
         saved.UnreadIds.Clear();
-        state.SetUnread(false, 7300);
-        Read(7350);
-        Check(state.Sample(7350).Pose == ReactionPose.Idle, "read all, repeat poll, then idle");
-        state.SetUnread(true, 8000);
-        Check(state.Sample(8000).ElapsedMs == 0, "a separate unread period starts a new cycle");
-        state.SetEnabled(false, 8100);
-        Check(state.Sample(8200).Pose == ReactionPose.Still, "disabled motion stays still");
-        state.SetUnread(false, 8300);
-        state.SetEnabled(true, 8400);
-        Check(state.Sample(8400).Pose == ReactionPose.Idle, "reading while disabled clears the pose");
+        Read(2400);
+        Check(state.Sample(2400).Pose == ReactionPose.Idle, "fully read returns to idle");
+
+        var glance = new CharacterReactionState();
+        glance.SetUnread(true, 0);
+        var moving = glance.Sample(6000);
+        Check(moving.Pose == ReactionPose.Unread && CharacterReactionState.ShowsUnreadGlance(moving.ArtworkProgress),
+            "only the final second is the unread glance");
+        glance.Fail(6200);
+        Check(glance.Sample(6999).Pose == ReactionPose.Unread, "glance does not break early");
+        Check(glance.Sample(7010).Pose == ReactionPose.Failed, "next neutral phase hands off");
+        var custom = new CharacterReactionState(customArtwork: true);
+        custom.SetUnread(true, 0);
+        Check(custom.Sample(5000).ArtworkProgress == 0, "custom pack rests on designated neutral frame");
+        custom.Fail(6250);
+        Check(custom.Sample(6500).Pose == ReactionPose.Unread && custom.Sample(7000).Pose == ReactionPose.Failed,
+            "the same phase policy applies to custom pack expressions");
     }
 
     public static void Waiting()
@@ -263,54 +222,91 @@ internal static class CharacterReactionTests
         var state = new CharacterReactionState();
         state.SendAccepted("own-a", 0);
         state.SendAccepted("own-a", 500);
-        var thinking = state.Sample(801);
-        Check(thinking.Pose == ReactionPose.Thinking && thinking.AllowsGaze
-            && thinking.DurationMs > 0, "one receipt followed by a thinking loop that a cursor may interrupt");
+        Check(state.Sample(800) is { Pose: ReactionPose.Thinking, ElapsedMs: 0 }, "deduplicated acceptance followed by thinking");
         state.ObserveWindow(-240, 0, 900);
-        var tracking = state.Sample(1150);
-        Check(tracking.Pose == ReactionPose.Look && tracking.GazeX < -0.99 && tracking.GazeY == 0,
-            "moving window to the left");
-        state.ObserveWindow(double.NaN, 0, 1250);
-        var relaxed = state.Sample(2900);
-        Check(relaxed.Pose == ReactionPose.Thinking && relaxed.ElapsedMs > thinking.ElapsedMs,
-            "thinking animation resumes at a later phase when motion ends");
-        Check(state.Sample(4100).Pose == ReactionPose.Thinking, "quiet wait keeps the thinking pose");
-        state.ObserveWindow(300, 0, 4150);
-        Check(state.Sample(4400).GazeX > 0.99, "motion draws attention during a resting interval");
-        state.ObserveWindow(0, 0, 4400);
-        var resumed = state.Sample(4650);
-        Check(resumed.Pose == ReactionPose.Thinking && resumed.ElapsedMs == 50,
-            "target disappearance returns to thinking, cycling across the phase boundary");
+        Check(state.Sample(900).Pose == ReactionPose.Look, "moving desktop window can draw attention");
+        state.ObserveWindow(-220, 0, 1020);
+        Check(state.Sample(1150).GazeX < -.99, "updates do not restart approach");
+        state.ObserveWindow(0, 0, 1200);
+        Check(state.Sample(1400) is { Pose: ReactionPose.Thinking, ElapsedMs: 0 }, "target removal restores a fresh thinking cycle");
+        Check(state.Sample(3150).GazeX > .25, "legacy direction-only pack has a natural fallback glance");
+        state.SendAccepted("own-b", 3200);
+        Check(state.Sample(3499).Pose == ReactionPose.Thinking, "active thinking tilt must reach neutral");
+        Check(state.Sample(3505).Pose == ReactionPose.Review, "delayed draw hands off after the neutral boundary");
+        state.Receive([Row(1, "reply-b", "own-b")], 3700);
+        Check(state.WaitingForReply, "one matched reply does not settle another request");
+        Check(state.Sample(4305).Pose == ReactionPose.Jump, "acknowledgment completes before arrival");
+        state.Receive([Row(2, "reply-a", "own-a")], 4500);
+        Check(!state.WaitingForReply, "the matching reply settles request immediately");
+        Check(state.Sample(4955).Pose == ReactionPose.Jump && state.Sample(5605).Pose == ReactionPose.Idle,
+            "later arrival after active jump coalesces separately");
 
-        state.SendAccepted("own-b", 4700);
-        state.Receive([Row(1, "proactive_new")], 4800);
-        var arriving = state.Sample(4801);
-        Check(arriving.Pose == ReactionPose.Jump && !arriving.AllowsGaze && state.WaitingForReply,
-            "proactive message takes priority over cursor and waiting pose");
-        Check(state.Sample(5451).Pose == ReactionPose.Thinking,
-            "unrelated proactive message finishes and thinking resumes");
-        state.Receive([Row(2, "reply-b", "own-b")], 5600);
-        Check(state.WaitingForReply && state.Sample(6251).Pose == ReactionPose.Thinking,
-            "settling one of two requests resumes thinking for the remaining one");
-        state.Receive([Row(3, "reply-a", "own-a")], 6300);
-        Check(!state.WaitingForReply && state.Sample(7000).Pose == ReactionPose.Idle,
-            "each corresponding reply settles its request");
-        state.SendAccepted("own-a", 7200);
-        Check(!state.WaitingForReply && state.Sample(7200).Pose == ReactionPose.Idle,
-            "cleanup retries do not restart the send or the gaze");
+        var gaze = new CharacterReactionState();
+        gaze.Sample(0);
+        gaze.ObserveCursor((1, 0));
+        Check(gaze.Sample(20) is { Pose: ReactionPose.Look, ElapsedMs: 0 }, "new direct gaze has an introduction");
+        gaze.ObserveCursor((0, 1));
+        Check(gaze.Sample(100) is { Pose: ReactionPose.Look, ElapsedMs: 80 }, "direction updates never reset elapsed intro");
+        gaze.Receive([Row(3, "finite")], 110);
+        Check(gaze.Sample(199).Pose == ReactionPose.Look && gaze.Sample(200).Pose == ReactionPose.Jump,
+            "protected look introduction then finite reaction");
+        Check(gaze.Sample(850) is { Pose: ReactionPose.Look, ElapsedMs: 0, GazeY: 0 }, "qualified gaze restarts from neutral");
+        gaze.Receive([Row(4, "finite-2")], 1040);
+        Check(gaze.Sample(1040).Pose == ReactionPose.Jump, "established tracking yields immediately");
+        gaze.ObserveCursor(null);
+        Check(gaze.Sample(1690).Pose == ReactionPose.Idle, "unqualified gaze does not restart");
 
-        state.SetEnabled(false, 7300);
-        state.SendAccepted("muted", 7350);
-        state.Receive([Row(4, "reply-muted", "muted")], 7400);
-        state.SetEnabled(true, 7450);
-        Check(!state.WaitingForReply && state.Sample(7450).Pose == ReactionPose.Idle,
-            "muted callbacks reconcile replies without replay on enable");
-        state.SendAccepted("waiting-at-disable", 7500);
-        state.SetEnabled(false, 7550);
-        Check(state.Sample(7600).Pose == ReactionPose.Still, "disabled stays still");
-        state.SetEnabled(true, 7650);
-        Check(state.Sample(7650).Pose == ReactionPose.Thinking, "resume thinking without replaying acceptance");
-        Check(state.Sample(9700).GazeX > 0.25, "direction-only fallback packs still glance aside during a wait");
+        var muted = new CharacterReactionState();
+        muted.SetEnabled(false, 0);
+        muted.SendAccepted("mute", 10);
+        muted.Receive([Row(5, "r", "mute")], 20);
+        muted.SetEnabled(true, 30);
+        Check(!muted.WaitingForReply && muted.Sample(31).Pose == ReactionPose.Idle, "muted callbacks reconcile without a replay");
+    }
+
+    public static void ActionBoundariesAndShutdown()
+    {
+        var indexed = new ReactionTimeline(true, new(80, false, 0, .8), new(20, true, .8, 1));
+        Check(!indexed.CanYieldBetween(10, 79) && indexed.CanYieldBetween(10, 120),
+            "a late draw that lands in a protected phase of a new cycle still observes the preceding boundary");
+        Check(indexed.CanYieldBetween(80, 80) && !indexed.CanYieldBetween(100, 179), "exact indexed boundary behavior");
+
+        var blink = new CharacterReactionState();
+        blink.Sample(0);
+        var expression = blink.Sample(4660);
+        Check(expression.Pose == ReactionPose.Idle && expression.ArtworkProgress >= 4650d / 4800,
+            "idle expression is driven by the same indexed timeline");
+        blink.Fail(4670);
+        Check(blink.Sample(4799).Pose == ReactionPose.Idle && blink.Sample(4800).Pose == ReactionPose.Failed,
+            "idle expression finishes before a new finite unit");
+
+        var close = new CharacterReactionState();
+        close.SendAccepted("closing", 0);
+        close.Fail(100);
+        close.BeginShutdown(200, animate: true);
+        close.Receive([Row(1, "late", "closing")], 250);
+        close.BeginShutdown(300, animate: true);
+        Check(close.IsClosing && !close.WaitingForReply, "closure does not delay or discard data bookkeeping");
+        Check(close.Sample(799).Pose == ReactionPose.Review, "wait only for the current protected playback");
+        Check(close.Sample(800) is { Pose: ReactionPose.Shutdown, ElapsedMs: 0 }, "one dedicated farewell, not pending failure");
+        close.BeginShutdown(1200, animate: true);
+        Check(close.Sample(1200) is { Pose: ReactionPose.Shutdown, ElapsedMs: 400 }, "duplicate stop does not restart");
+        Check(close.Sample(1500).Pose == ReactionPose.Still && close.ShutdownReady, "stop proceeds after farewell");
+        var limit = new CharacterReactionState();
+        limit.SetUnread(true, 0);
+        limit.Sample(6000);
+        limit.BeginShutdown(6001, true);
+        Check(limit.Sample(6800).Pose == ReactionPose.Unread && limit.Sample(6801).Pose == ReactionPose.Shutdown,
+              "normal boundary wait has a strict 800ms cap");
+        Check(limit.Sample(7601).Pose == ReactionPose.Still && limit.ShutdownReady, "absolute deadline survives skipped timer ticks");
+
+        var skip = new CharacterReactionState();
+        skip.BeginShutdown(0, animate: false); // unavailable, explicitly restarting, or no visible artwork
+        Check(skip.ShutdownReady && skip.Sample(1).Pose == ReactionPose.Still, "no usable farewell means immediate exit");
+        var disabled = new CharacterReactionState();
+        disabled.BeginShutdown(0, true);
+        disabled.SetEnabled(false, 50);
+        Check(disabled.ShutdownReady, "failed or disabled drawing releases shutdown immediately");
     }
 
     private static ChatMessage Row(long sequence, string id, string? inReplyTo = null) =>

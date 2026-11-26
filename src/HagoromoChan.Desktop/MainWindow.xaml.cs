@@ -45,6 +45,10 @@ public partial class MainWindow : Window
     private bool _closing;
     private bool _exitRequested;
     private bool _localExitQueued;
+    private bool _shutdownDispatchQueued;
+    private bool _sessionEnding;
+    private bool _restartInFlight;
+    private DispatcherTimer? _exitDeadline;
     private bool _controlRequest;
     private bool _expandedStatus;
     private readonly string _runtimeDirectory;
@@ -95,6 +99,7 @@ public partial class MainWindow : Window
 
         var artwork = MascotArtwork.Load(dataDirectory, out var assetWarning, out var bundledArtwork);
         _reactionArtwork = new CharacterReactionArtwork(artwork, dataDirectory, bundledArtwork);
+        _reactions = new CharacterReactionState(_reactionArtwork.UsesCustomPack);
         _assetWarning = _reactionArtwork.Warning ?? assetWarning;
         _reactionArtwork.SetDisplayScale(Math.Min(1, (double)_preferences.Height / artwork.PixelHeight));
         MascotImage.Source = _reactionArtwork.RestingImage;
@@ -111,7 +116,11 @@ public partial class MainWindow : Window
         MessageInput.LostKeyboardFocus += MessageInput_LostKeyboardFocus;
         SendButton.Click += SendButton_Click;
         RelayRetryButton.Click += RelayRetryButton_Click;
-        _panels.VisibilityChanged += RefreshStatus;
+        _panels.VisibilityChanged += () =>
+        {
+            _reactions.ObserveVisibility(ConversationVisible);
+            RefreshStatus();
+        };
         WireDesktopEvents();
 
         TextCompositionManager.AddPreviewTextInputStartHandler(MessageInput, (_, _) => BeginComposition());
@@ -153,18 +162,21 @@ public partial class MainWindow : Window
         if (_exitRequested || _closing || _controlRequest || string.IsNullOrEmpty(_managerPipe))
             return;
         _controlRequest = true;
+        _restartInFlight = command == RuntimeCommand.Restart;
+        var accepted = false;
         RefreshComposer();
         try
         {
-            if (!await RuntimeControl.SendAsync(_managerPipe, command, _lifetime.Token))
+            accepted = await RuntimeControl.SendAsync(_managerPipe, command, _lifetime.Token);
+            if (!accepted)
                 ShowSendFeedback("管理プロセスが処理中です。終了・再起動を再試行してください。");
-            else
+            else if (!_closing)
             {
                 _exitRequested = true;
-                StopReactions();
                 _placementTimer.Stop();
                 RefreshComposer();
-                // The supervisor owns the ordered stop and will signal this window.
+                // Only the supervisor's actual stop signal starts the farewell.
+                // Keep rendering while it owns the ordered stop.
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
@@ -175,9 +187,12 @@ public partial class MainWindow : Window
         finally
         {
             _controlRequest = false;
+            if (!accepted && !_localExitQueued) _restartInFlight = false;
             if (!_closing) RefreshComposer();
         }
     }
+
+    internal void NoteSessionEnding() => _sessionEnding = true;
 
     internal void RequestLocalExit()
     {
@@ -185,14 +200,40 @@ public partial class MainWindow : Window
             return;
         _localExitQueued = true;
         _exitRequested = true;
-        StopReactions();
         _placementTimer.Stop();
-
-        // Leave the active ContextMenu/Popup event stack before shutting down.
-        // This is only the local WPF shutdown. The supervisor sends the stop
-        // event and observes our exit before stopping its other children.
+        RefreshComposer();
         if (_contextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
+
+        var animate = _initialized && !_restartInFlight && !_sessionEnding && IsVisible
+            && AnimationsEnabled && _reactionArtwork.CanFarewell && !_reactionsClosed;
+        _reactions.BeginShutdown(Environment.TickCount64, animate);
+        if (!animate || _reactions.ShutdownReady)
+        {
+            FinishLocalExit();
+            return;
+        }
+
+        // Independent of the render timer; a missing draw cannot strand the
+        // existing supervisor shutdown path or extend its process deadline.
+        _exitDeadline = new DispatcherTimer(DispatcherPriority.Normal)
+        {
+            Interval = TimeSpan.FromMilliseconds(CharacterReactionState.ClosingDeadlineMs)
+        };
+        _exitDeadline.Tick += (_, _) => FinishLocalExit();
+        _exitDeadline.Start();
+        _reactionTimer.Start();
+        RenderReactions(this, EventArgs.Empty);
+    }
+
+    private void FinishLocalExit()
+    {
+        if (_closing || _shutdownDispatchQueued)
+            return;
+        _shutdownDispatchQueued = true;
+        _exitDeadline?.Stop();
+        _reactionTimer.Stop();
+        // Leave the active ContextMenu/Popup event stack before shutdown.
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
             PrepareShutdown();
@@ -203,8 +244,14 @@ public partial class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (!e.Cancel)
-            PrepareShutdown();
+        if (e.Cancel) return;
+        if (!_closing && _initialized && !_sessionEnding && !_shutdownDispatchQueued)
+        {
+            e.Cancel = true;
+            RequestExit();
+            return;
+        }
+        PrepareShutdown();
     }
 
     private void PrepareShutdown()
@@ -213,6 +260,8 @@ public partial class MainWindow : Window
             return;
 
         _closing = true;
+        _exitDeadline?.Stop();
+        _exitDeadline = null;
         StopReactions();
         _placementTimer.Stop();
         _panels.PrepareForShutdown();
