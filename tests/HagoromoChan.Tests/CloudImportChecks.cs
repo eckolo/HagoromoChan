@@ -96,7 +96,7 @@ internal static class CloudImportChecks
 
         var names = (await Call("tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray()
             .Select(tool => tool.GetProperty("name").GetString()).ToHashSet();
-        Must(names.SetEquals(new[] { "get_context", "reply", "send_message", "import_cloud_answer", "get_pending_work_retrieval", "complete_work_retrieval", "complete_work_discovery" }),
+        Must(names.SetEquals(new[] { "get_context", "reply", "send_message", "import_cloud_answer", "get_pending_work_retrieval", "complete_work_retrieval", "complete_work_discovery", "complete_work_answer_choices" }),
             "Normal MCP advertises the new tool without dropping a legacy tool");
 
         async Task<JsonElement> Import(string source, string id, string body) =>
@@ -177,6 +177,33 @@ internal static class CloudImportChecks
         })).GetProperty("isError").GetBoolean() &&
             handler.WorkPull.Status(denied.OperationId) is { State: "not_authorized", Answer: null },
             "Denied reads never create a body");
+        var answerList = handler.WorkPull.ListAnswers(selected.Id);
+        var listRequest = handler.WorkPull.Next();
+        Must(listRequest is { Action: "list_answers" } && listRequest.ConversationId == conversation,
+            "SSP asks only for answers in the selected Work");
+        const string olderMessage = "msg_older_completed";
+        const string latestMessage = "msg_latest_completed";
+        Must(!(await WorkTool("complete_work_answer_choices", new
+        {
+            operation_id = answerList.OperationId, source_id = selected.Id, conversation_id = conversation,
+            choices = new[] { new { message_id = olderMessage, label = "Same label" },
+                new { message_id = latestMessage, label = "Same label" } }
+        })).GetProperty("isError").GetBoolean(), "Completed choices belong to exact Work");
+        Must(handler.WorkPull.Status(answerList.OperationId).AnswerChoices?.Length == 2,
+            "Both provider IDs are selectable without using label identity");
+        Throws<KeyNotFoundException>(() => handler.WorkPull.SelectAnswer(answerList.OperationId, "msg_unlisted"));
+        var selectedAnswer = handler.WorkPull.SelectAnswer(answerList.OperationId, olderMessage);
+        Must(handler.WorkPull.Next() is { Action: "selected_answer", MessageId: olderMessage },
+            "Selection binds old answer even if another answer is newer");
+        message = latestMessage;
+        Must((await WorkTool(complete, Completion(selectedAnswer.OperationId, selected.Id, conversation, "wrong body")))
+            .GetProperty("isError").GetBoolean(), "Returning a different latest answer is rejected");
+        message = olderMessage;
+        Must(!(await WorkTool(complete, Completion(selectedAnswer.OperationId, selected.Id, conversation, "older full body")))
+            .GetProperty("isError").GetBoolean() &&
+            handler.WorkPull.Status(selectedAnswer.OperationId).Answer?.Text == "older full body",
+            "Exact chosen answer is persisted and displayed");
+
         foreach (var source in new[] { chat, work })
         {
             var id = Guid.NewGuid().ToString("D");

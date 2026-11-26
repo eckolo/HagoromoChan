@@ -179,7 +179,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         tools.Add(new
         {
             name = "complete_work_retrieval",
-            description = "Resolve an explicit Windows SSP request. For available, supply the latest completed assistant answer's original ID and exact complete body from the authorized matching Work transcript. Do not summarize, infer, copy a user prompt, or post to that Work.",
+            description = "Resolve an explicit Windows SSP request. For available, supply the requested completed assistant answer's original ID and exact complete body (the selected ID, when supplied) from the authorized matching Work transcript. Do not summarize, infer, copy a user prompt, or post to that Work.",
             inputSchema = new
             {
                 type = "object",
@@ -219,13 +219,39 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             },
             annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
         });
+        tools.Add(new
+        {
+            name = "complete_work_answer_choices",
+            description = "Return up to 25 verified completed assistant answers for the exact requested Work conversation. Labels are display-only; preserve the original case-sensitive message IDs. Do not provide incomplete or ambiguous items.",
+            inputSchema = new
+            {
+                type = "object",
+                properties = new
+                {
+                    operation_id = new { type = "string" }, source_id = new { type = "string" },
+                    conversation_id = new { type = "string" },
+                    choices = new
+                    {
+                        type = "array", maxItems = 25,
+                        items = new
+                        {
+                            type = "object",
+                            properties = new { message_id = new { type = "string" }, label = new { type = "string", maxLength = 200 } },
+                            required = new[] { "message_id", "label" }, additionalProperties = false
+                        }
+                    }
+                },
+                required = new[] { "operation_id", "source_id", "conversation_id", "choices" }, additionalProperties = false
+            },
+            annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
+        });
         return new { tools };
     }
 
     private object CallTool(JsonElement parameters)
     {
         var name = RequiredString(parameters, "name");
-        if (name is "get_pending_work_retrieval" or "complete_work_retrieval" or "complete_work_discovery")
+        if (name is "get_pending_work_retrieval" or "complete_work_retrieval" or "complete_work_discovery" or "complete_work_answer_choices")
             return HandleWorkTool(name, RequiredObject(parameters, "arguments"));
         if (name == "import_cloud_answer")
             return ImportCloudAnswer(RequiredObject(parameters, "arguments"));
@@ -274,8 +300,30 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             var item = WorkPull.Next();
             return WorkToolResult(new { pending = item is null ? null : new
             {
-                operation_id = item.OperationId, action = item.Action, source_id = item.SourceId, conversation_id = item.ConversationId
+                operation_id = item.OperationId, action = item.Action, source_id = item.SourceId, conversation_id = item.ConversationId, message_id = item.MessageId
             } });
+        }
+
+        if (name == "complete_work_answer_choices")
+        {
+            ValidateProperties(arguments, ["operation_id", "source_id", "conversation_id", "choices"]);
+            if (!arguments.TryGetProperty("choices", out var supplied) || supplied.ValueKind != JsonValueKind.Array ||
+                supplied.GetArrayLength() > 25)
+                throw InvalidParams("Expected bounded Work answer choices.");
+            var choices = supplied.EnumerateArray().Select(entry =>
+            {
+                ValidateProperties(entry, ["message_id", "label"]);
+                return new WorkAnswerCandidate(RequiredString(entry, "message_id"), RequiredString(entry, "label"));
+            }).ToArray();
+            try
+            {
+                var receipt = WorkPull.CompleteAnswerChoices(RequiredString(arguments, "operation_id"),
+                    RequiredString(arguments, "source_id"), RequiredString(arguments, "conversation_id"), choices);
+                return WorkToolResult(new { count = receipt.AnswerChoices!.Length });
+            }
+            catch (ValidationException) { return ToolError("invalid_work_answer_choices"); }
+            catch (ConflictException) { return ToolError("different_work_answer_choices_already_exists"); }
+            catch (KeyNotFoundException) { return ToolError("work_answer_choices_request_not_found"); }
         }
 
         if (name == "complete_work_discovery")

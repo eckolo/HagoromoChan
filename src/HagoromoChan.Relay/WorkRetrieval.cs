@@ -15,19 +15,24 @@ public sealed class WorkRetrieval(ChatStore store)
     private sealed record Pending(WorkPullRequest Request, DateTimeOffset Expires,
         WorkPullStatus Status, WorkPullResult? Result = null);
 
-    public WorkPullStatus Start(string sourceId)
+    public WorkPullStatus Start(string sourceId) => Start(sourceId, "latest_answer", null);
+
+    public WorkPullStatus ListAnswers(string sourceId) => Start(sourceId, "list_answers", null);
+
+    private WorkPullStatus Start(string sourceId, string action, string? messageId)
     {
         lock (gate)
         {
             Expire();
             var conversation = store.WorkConversationId(sourceId);
-            var existing = pending.Values.FirstOrDefault(p => p.Request.SourceId == sourceId && p.Status.State == "pending");
+            var existing = pending.Values.FirstOrDefault(p => p.Request.SourceId == sourceId &&
+                p.Request.Action == action && p.Request.MessageId == messageId && p.Status.State == "pending");
             if (existing is not null) return existing.Status;
             if (pending.Count >= 32)
                 throw new ValidationException("Too many recent retrieval requests. Try again later.");
             var id = Guid.NewGuid().ToString("D");
             var status = new WorkPullStatus(id, "pending");
-            pending.Add(id, new(new(id, sourceId, conversation),
+            pending.Add(id, new(new(id, sourceId, conversation, action, messageId),
                 DateTimeOffset.UtcNow + Lifetime, status));
             return status;
         }
@@ -81,6 +86,41 @@ public sealed class WorkRetrieval(ChatStore store)
         }
     }
 
+    public WorkPullStatus CompleteAnswerChoices(string operationId, string sourceId, string conversationId,
+        WorkAnswerCandidate[] choices)
+    {
+        lock (gate)
+        {
+            Expire();
+            if (!pending.TryGetValue(operationId, out var item) || item.Request.Action != "list_answers")
+                throw new KeyNotFoundException();
+            if (item.Request.SourceId != sourceId || item.Request.ConversationId != conversationId)
+                throw new ValidationException("Answer list identity does not match.");
+            if (choices.Length > 25 || choices.Any(c => c is null || !IsProviderId(c.MessageId) ||
+                string.IsNullOrWhiteSpace(c.Label) || c.Label.Length > 200 || c.Label.Any(char.IsControl)) ||
+                choices.Select(c => c.MessageId).Distinct(StringComparer.Ordinal).Count() != choices.Length)
+                throw new ValidationException("Invalid Work answer choices.");
+            if (item.Result is not null) throw new ConflictException("Answer list already failed.");
+            if (item.Status.AnswerChoices is { } prior)
+                return prior.SequenceEqual(choices) ? item.Status : throw new ConflictException("Answer list changed.");
+            var status = new WorkPullStatus(operationId, "answer_choices", AnswerChoices: choices.ToArray());
+            pending[operationId] = item with { Status = status };
+            return status;
+        }
+    }
+
+    public WorkPullStatus SelectAnswer(string operationId, string messageId)
+    {
+        lock (gate)
+        {
+            Expire();
+            if (!pending.TryGetValue(operationId, out var item) || item.Status.AnswerChoices is not { } choices ||
+                !choices.Any(c => c.MessageId == messageId))
+                throw new KeyNotFoundException();
+            return Start(item.Request.SourceId, "selected_answer", messageId);
+        }
+    }
+
     public WorkPullRequest? Next()
     {
         lock (gate)
@@ -104,7 +144,8 @@ public sealed class WorkRetrieval(ChatStore store)
         lock (gate)
         {
             Expire();
-            if (!pending.TryGetValue(result.OperationId, out var item) || item.Request.Action != "latest_answer")
+            if (!pending.TryGetValue(result.OperationId, out var item) || item.Request.Action is not ("latest_answer" or "selected_answer" or "list_answers") ||
+                item.Status.AnswerChoices is not null)
                 throw new KeyNotFoundException();
             if (item.Request.SourceId != result.SourceId || item.Request.ConversationId != result.ConversationId)
                 throw new ValidationException("Retrieval identity does not match.");
@@ -113,7 +154,8 @@ public sealed class WorkRetrieval(ChatStore store)
             CloudAnswer? answer = null;
             if (result.State == "available")
             {
-                if (!IsProviderId(result.MessageId) || string.IsNullOrWhiteSpace(result.Text))
+                if (item.Request.Action == "list_answers" || !IsProviderId(result.MessageId) || string.IsNullOrWhiteSpace(result.Text) ||
+                    (item.Request.MessageId is { } selected && selected != result.MessageId))
                     throw new ValidationException("A message ID and complete body are required.");
                 // Stable per registered source and original answer, independent of the request/retry UUID.
                 // Provider IDs are case-sensitive, opaque and restricted to unreserved URI characters.

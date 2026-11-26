@@ -40,3 +40,12 @@ under a separate provider identity namespace and does not invent a URL for it.
 Only the exact provider ID can bind a source/title or answer; a title/date/body
 match cannot identify an execution-side Work. Legacy private-URL registrations
 remain distinct and are not merged by heuristics.
+
+The candidate-list path starts a `list_answers` operation for an exact Work
+identity. The worker submits bounded completed-answer IDs and display labels
+through `complete_work_answer_choices`. SSP offers the choices without storing
+their full bodies; selecting one creates a new `selected_answer` operation
+bound to its original message ID. A worker may not substitute the latest item
+for that selection. Listing requires a provider that can prove completion for
+each listed item; a provider with only the latest completed turn may return
+just that verified choice. Display labels have no identity meaning.

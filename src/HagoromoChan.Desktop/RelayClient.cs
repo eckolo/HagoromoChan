@@ -45,6 +45,14 @@ internal sealed class RelayClient : IDisposable
         SendAsync<CloudSource>(HttpMethod.Post,
             $"/api/m05/work-discovery/{Uri.EscapeDataString(operationId)}/select/{Uri.EscapeDataString(conversationId)}", null, cancellationToken);
 
+    public Task<WorkPullStatus> ListWorkAnswersAsync(string sourceId, CancellationToken cancellationToken) =>
+        SendAsync<WorkPullStatus>(HttpMethod.Post,
+            $"/api/m05/sources/{Uri.EscapeDataString(sourceId)}/work-answers", null, cancellationToken);
+
+    public Task<WorkPullStatus> SelectWorkAnswerAsync(string operationId, string messageId, CancellationToken cancellationToken) =>
+        SendAsync<WorkPullStatus>(HttpMethod.Post,
+            $"/api/m05/work-answers/{Uri.EscapeDataString(operationId)}/select/{Uri.EscapeDataString(messageId)}", null, cancellationToken);
+
     public Task<WorkPullStatus> StartWorkRetrievalAsync(string sourceId, CancellationToken cancellationToken) =>
         SendAsync<WorkPullStatus>(HttpMethod.Post,
             $"/api/m05/sources/{Uri.EscapeDataString(sourceId)}/work-retrieval", null, cancellationToken);

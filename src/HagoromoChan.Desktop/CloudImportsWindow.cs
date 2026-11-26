@@ -26,6 +26,10 @@ internal sealed class CloudImportsWindow : Window
     private readonly Button pullWork;
     private readonly ComboBox workChoices = new() { DisplayMemberPath = nameof(WorkSourceCandidate.Title) };
     private string? discoveryOperation;
+    private readonly ComboBox workAnswers = new() { DisplayMemberPath = nameof(WorkAnswerCandidate.Label) };
+    private readonly Button listWorkAnswers;
+    private readonly Button selectWorkAnswer;
+    private string? answerChoicesOperation;
     private long cursor;
     private bool busy;
     private bool refreshing;
@@ -58,10 +62,18 @@ internal sealed class CloudImportsWindow : Window
         pullWork = Button("Workの最新回答を取得", async () => await PullWorkAsync());
         pullWork.IsEnabled = false;
         actions.Children.Add(pullWork);
+        listWorkAnswers = Button("Work回答候補を探す", async () => await ListWorkAnswersAsync());
+        listWorkAnswers.IsEnabled = false;
+        actions.Children.Add(listWorkAnswers);
         actions.Children.Add(Button("Work候補を探す", async () => await DiscoverWorkAsync()));
         controls.Children.Add(actions);
         Add("取得可能なWork候補", workChoices);
         controls.Children.Add(Button("選んだWorkを登録", async () => await RegisterWorkAsync()));
+        Add("取得可能なWork回答", workAnswers);
+        selectWorkAnswer = Button("選んだ回答を取得", async () => await SelectWorkAnswerAsync());
+        selectWorkAnswer.IsEnabled = false;
+        controls.Children.Add(selectWorkAnswer);
+        workAnswers.SelectionChanged += (_, _) => selectWorkAnswer.IsEnabled = workAnswers.SelectedItem is WorkAnswerCandidate;
         Add("元の会話で明示転送するときに使う登録ID", receipt);
         controls.Children.Add(status);
         sources.SelectionChanged += async (_, _) =>
@@ -116,7 +128,9 @@ internal sealed class CloudImportsWindow : Window
 
     private void ApplySelection()
     {
-        pullWork.IsEnabled = sources.SelectedItem is CloudSource { Kind: "work" };
+        pullWork.IsEnabled = listWorkAnswers.IsEnabled = sources.SelectedItem is CloudSource { Kind: "work" };
+        answerChoicesOperation = null;
+        workAnswers.ItemsSource = null;
         if (sources.SelectedItem is not CloudSource source)
         {
             receipt.Clear();
@@ -165,13 +179,43 @@ internal sealed class CloudImportsWindow : Window
         return state;
     }
 
+    private Task ListWorkAnswersAsync() => RunAsync(async () =>
+    {
+        if (sources.SelectedItem is not CloudSource { Kind: "work" } source) return;
+        answerChoicesOperation = null;
+        workAnswers.ItemsSource = null;
+        status.Text = "完了したWork回答を問い合わせています。";
+        var result = await WaitForWorkAsync(await relay.ListWorkAnswersAsync(source.Id, lifetime));
+        if (!IsLoaded) return;
+        if (result.State == "answer_choices")
+        {
+            answerChoicesOperation = result.OperationId;
+            workAnswers.ItemsSource = result.AnswerChoices;
+            status.Text = result.AnswerChoices is { Length: > 0 } ? "取得する回答を選んでください。" :
+                "取得可能な完了回答は見つかりませんでした。";
+        }
+        else ShowWorkResult(result);
+    });
+
+    private Task SelectWorkAnswerAsync() => RunAsync(async () =>
+    {
+        if (answerChoicesOperation is not { } operation || workAnswers.SelectedItem is not WorkAnswerCandidate answer) return;
+        status.Text = "選んだWork回答の取得を依頼しました。";
+        var result = await WaitForWorkAsync(await relay.SelectWorkAnswerAsync(operation, answer.MessageId, lifetime));
+        if (IsLoaded) ShowWorkResult(result);
+    });
+
     private Task PullWorkAsync() => RunAsync(async () =>
     {
         if (sources.SelectedItem is not CloudSource { Kind: "work" } source) return;
         var state = await relay.StartWorkRetrievalAsync(source.Id, lifetime);
         status.Text = "Workの回答取得を依頼しました。";
         state = await WaitForWorkAsync(state);
-        if (!IsLoaded) return;
+        if (IsLoaded) ShowWorkResult(state);
+    });
+
+    private void ShowWorkResult(WorkPullStatus state)
+    {
         if (state.Answer is { } answer)
         {
             answers.Text = answer.Text;
@@ -185,7 +229,7 @@ internal sealed class CloudImportsWindow : Window
             "not_found" => "Workまたは完了した回答が見つかりません。",
             _ => "取得が時間内に完了しませんでした。"
         };
-    });
+    }
 
     private async Task ReadAsync(bool reset)
     {
