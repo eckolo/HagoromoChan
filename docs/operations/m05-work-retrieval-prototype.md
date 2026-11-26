@@ -49,3 +49,21 @@ bound to its original message ID. A worker may not substitute the latest item
 for that selection. Listing requires a provider that can prove completion for
 each listed item; a provider with only the latest completed turn may return
 just that verified choice. Display labels have no identity meaning.
+
+`scripts/m05-work-reader.mjs` implements the read adapter's validation and
+dispatch independently of a host. Run its synthetic rejection/selection tests
+with `node scripts/m05-work-reader.test.mjs`. A host must obtain only the
+already-authorized Work records and pass through the provider's exact metadata;
+neither the module nor the SSP creates an authorization grant. Native completed
+turn ID and item ID must match within the exact requested execution thread.
+Without a final-phase field the adapter accepts only one complete, untruncated
+assistant item in that completed turn; ambiguity is not a successful read.
+
+The native reader can return the exact completed text and opaque answer ID but
+the tested native record contains no title. The history representation is not
+an authoritative alias. Work discovery must omit an entry unless the provider
+delivers an exact execution-thread ID with its verified title, and the adapter
+must not silently replace a selected answer if that item is no longer provable
+through the available reader. Fetching from a different history representation
+does not satisfy these gates. A real worker host/wake with the scoped connector
+still needs to be provisioned separately before live SSP use.
