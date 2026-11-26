@@ -10,7 +10,7 @@
 | MGMT-02 | main 統合規則の改定・アプリマイルストーン登録 | 管理基盤 | MGMT-01 | `milestone/MGMT-02-merge-policy-and-roadmap` | [MGMT-02](milestones/MGMT-02.md) |
 | M03 | 羽衣ちゃんの表示・ウィンドウの見た目の調整 | 最高 | 未確定（下記参照） | `milestone/M03-character-and-window-ui` | [M03](milestones/M03.md) |
 | M04 | Dotからの能動的な発言 | 高 | 未確定（下記参照） | `milestone/M04-dot-proactive-messages` | [M04](milestones/M04.md) |
-| M05 | 他会話の回答受信・会話管理基盤 | 高 | M03・M04（完了）、M08の実行基盤 | `milestone/M05-other-conversations` | [M05](milestones/M05.md) |
+| M05 | 他会話の回答受信・会話管理基盤 | 高（Workのひな型を先行、Chat調査は独立） | M03・M04（完了）、M08の実行基盤 | `milestone/M05-other-conversations` | [M05](milestones/M05.md) |
 | M06 | 通信状態の管理・障害復旧 | 中 | M03 の基本 UI（完了）、詳細依存は設計時に確認 | `milestone/M06-connection-status` | [M06](milestones/M06.md) |
 | MGMT-07 | デスクトップ追加機能のマイルストーン登録 | 管理基盤 | MGMT-02 | `milestone/MGMT-07-register-desktop-behaviors` | [MGMT-07](milestones/MGMT-07.md) |
 | M08 | 起動・終了管理とスタートアップによる自動起動 | 高 | M03 の基本 UI を先行（詳細依存は未確定） | `milestone/M08-startup` | [M08](milestones/M08.md) |
@@ -26,6 +26,9 @@
 | M18 | 複数会話スレッドの切り替えUI・起動時の入力窓 | 高 | M03、M05 | `milestone/M18-conversation-switching-ui` | [M18](milestones/M18.md) |
 | M19 | 他会話への発言送信 | 高 | M05、M18 | `milestone/M19-cloud-conversation-send` | [M19](milestones/M19.md) |
 | MGMT-20 | M18へ起動時の入力窓の改善を記録 | 管理 | M18の登録 | `milestone/MGMT-20-record-startup-input` | [MGMT-20](milestones/MGMT-20.md) |
+| M21 | キャラクターアクションの順番制御・終了演出・バリエーション | 優先度は着手時に確認 | M09、終了経路はM08 | `milestone/M21-action-sequencing` | [M21](milestones/M21.md) |
+| M22 | 会話吹き出しの本文枠の左右位置合わせ | 優先度は着手時に確認 | M03 | `milestone/M22-bubble-body-alignment` | [M22](milestones/M22.md) |
+| MGMT-23 | M05の作業分離とSSP追加要望の登録 | 管理 | MGMT-20、M05・M03・M08・M09の定義 | `milestone/MGMT-23-register-ssp-followups` | [MGMT-23](milestones/MGMT-23.md) |
 
 ## 着手順と依存
 
@@ -37,7 +40,8 @@
 - 2026-11-26 の追加指示（MGMT-16）により、M04で受領したツール更新後の購読元接続不一致をM06の障害例・追加完了条件として記録する。M06の中優先度・未着手は維持する。
 - M14 は履歴のアクティブ化・スクロール操作による新着解除を扱う。M06 の通信状態の区別・障害復旧とは分離し、低優先度とする。M03 の完了は維持する。
 - 2026-11-26 のユーザー承認（MGMT-17）により、M05を高優先度の他会話の回答受信・会話管理基盤へ改定し、M18（複数会話スレッドの切り替えUI）、M19（他会話への発言送信）を高優先度で登録する。当面の外部会話対象はクラウドChat／クラウドWorkのみ。ローカルWorkは対象外。M05の初期工程で受信・将来の送信先識別の実現可能性を種別ごとに調査し、対応不能な範囲はユーザーとの合意を経て変更する。M05 → M18 → M19の順に基盤と実装・統合を進める。M09は既存担当で継続し、M05の調査と並行できるが共有箇所の実装は調整する。M06・M09は中、M10・M14は低のまま維持する。今回の3分割は定義・登録のみであり、アプリ実装の着手・新たな会話の作成は別途行う。
-- 10件のアプリ本体マイルストーンの名称・目的・優先度はユーザーの提示・承認に基づく。詳細な仕様・完了条件は着手時に確定する。個別記録の完了条件は暫定案であり、未承認の仕様追加を意味しない。
+- MGMT-23: M05のクラウドWork取得と通常Chat本文調査を別作業として追跡する。Workのひな型を先行し、Chat調査は余力があるときに並行する。操作はSSP内で完結し、M05全体の完了条件は縮小しない。M21はM09、M22はM03と関連するが、いずれも完了済み範囲の履歴を開き直さない後続項目とする。M21の終了演出はM08の正常終了経路と協調する。
+- アプリ本体マイルストーンの名称・目的・優先度はユーザーの提示・承認に基づく。詳細な仕様・完了条件は着手時に確定する。個別記録の完了条件は暫定案であり、未承認の仕様追加を意味しない。
 - 既存の通信実証は現行実装の成果として扱い、新たなアプリ本体マイルストーンにはしない。
 
 ## 更新方針
