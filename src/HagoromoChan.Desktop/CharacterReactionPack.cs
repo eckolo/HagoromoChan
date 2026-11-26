@@ -143,6 +143,8 @@ internal sealed class CharacterReactionPack
         return sheet;
     }
 
+    public bool HasAction(string action) => _actions.ContainsKey(action);
+
     public BitmapSource Select(string action, double progress, double gazeX, double gazeY)
     {
         // A legacy waiting sequence is a timed loop; look is a sheet of 16 directions.
@@ -151,7 +153,8 @@ internal sealed class CharacterReactionPack
         else if (action == "waiting" && _actions.ContainsKey("look"))
             action = "look";
         if (action == "look" && _actions.TryGetValue("look", out var directions))
-            return directions[CharacterReactionArtwork.LookDirection(gazeX, gazeY)].Bitmap;
+            return Math.Max(Math.Abs(gazeX), Math.Abs(gazeY)) < .18
+                ? _actions["idle"][0].Bitmap : directions[CharacterReactionArtwork.LookDirection(gazeX, gazeY)].Bitmap;
         if (action == "unread" && !_actions.ContainsKey("unread"))
         {
             // Keep an existing pack's usual one-second idle cadence during the longer unread cycle.
