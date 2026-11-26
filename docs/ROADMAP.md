@@ -27,8 +27,9 @@
 | M19 | 他会話への発言送信 | 高 | M05、M18 | `milestone/M19-cloud-conversation-send` | [M19](milestones/M19.md) |
 | MGMT-20 | M18へ起動時の入力窓の改善を記録 | 管理 | M18の登録 | `milestone/MGMT-20-record-startup-input` | [MGMT-20](milestones/MGMT-20.md) |
 | M21 | キャラクターアクションの順番制御・終了演出・バリエーション | 優先度は着手時に確認 | M09、終了経路はM08 | `milestone/M21-action-sequencing` | [M21](milestones/M21.md) |
-| M22 | 会話吹き出しの本文枠の左右位置合わせ | 優先度は着手時に確認 | M03 | `milestone/M22-bubble-body-alignment` | [M22](milestones/M22.md) |
+| M22 | 会話吹き出しの本文枠の位置合わせ・長文表示 | 優先度は着手時に確認 | M03 | `milestone/M22-bubble-body-alignment` | [M22](milestones/M22.md) |
 | MGMT-23 | M05の作業分離とSSP追加要望の登録 | 管理 | MGMT-20、M05・M03・M08・M09の定義 | `milestone/MGMT-23-register-ssp-followups` | [MGMT-23](milestones/MGMT-23.md) |
+| MGMT-24 | M22に長文最終行のはみ出し修正を記録 | 管理 | M22の登録 | `milestone/MGMT-24-record-bubble-overflow` | [MGMT-24](milestones/MGMT-24.md) |
 
 ## 着手順と依存
 
