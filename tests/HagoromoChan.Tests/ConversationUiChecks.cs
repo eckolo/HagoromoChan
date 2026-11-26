@@ -91,6 +91,21 @@ internal static class ConversationUiChecks
 
     public static void DraftHeightAndLosslessPages()
     {
+        // Destination has a higher DPI than the owning mascot, and the HWND
+        // client is shorter than the requested window. The old owner-scale
+        // budget is too generous for this actual client.
+        const double ownerScale = 1.25, destinationScale = 1.75, navHeight = 44;
+        const int requestedHeight = 451, actualHeight = 367;
+        var destination = BubbleLayout.ClientDip(requestedHeight, actualHeight, destinationScale);
+        var budget = BubbleLayout.ConversationBodyBudget(destination, navHeight, destinationScale);
+        var oldBudget = requestedHeight / ownerScale - navHeight - 2;
+        True(oldBudget * destinationScale > actualHeight, "Exercise prior unit/viewport mismatch.");
+        True((budget + BubbleLayout.RoundUp(navHeight, destinationScale) + 2) * destinationScale
+            <= actualHeight + 1e-8, "Content, navigation and safety insets stay inside physical client pixels.");
+        Equal(requestedHeight / destinationScale,
+            BubbleLayout.ClientDip(requestedHeight, requestedHeight + 200, destinationScale));
+        Equal(0d, BubbleLayout.ConversationBodyBudget(20, navHeight, destinationScale));
+
         var text = string.Join("\r\n", Enumerable.Range(1, 10).Select(i =>
             $"{i:D2} 合成の検証文です。日本語とABC123を混ぜた段落を折り返して表示します。次の行に続く文章を最後まで読めるか確認します。"))
             + "\r\n最終行を含む。";

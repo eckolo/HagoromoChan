@@ -133,19 +133,79 @@ internal static class Program
                 editor.Text = topic;
                 editor.Height = 44;
                 draftWindow.UpdateLayout();
+                var fixedWrapWidth = editor.ViewportWidth;
+                Require(editor.VerticalScrollBarVisibility == ScrollBarVisibility.Hidden &&
+                    editor.ExtentHeight > editor.ViewportHeight, "Overflow fixture must need scrolling without a visible track.");
+
+                // Reproduce the old width feedback on the actual styled TextBox.
+                editor.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                draftWindow.UpdateLayout();
+                Require(fixedWrapWidth - editor.ViewportWidth >= 1 / scale,
+                    "The former auto scrollbar did not reproduce a narrower native wrapping viewport.");
+                editor.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+                draftWindow.UpdateLayout();
+                Require(Math.Abs(editor.ViewportWidth - fixedWrapWidth) <= 1 / scale,
+                    "Fallback scrolling changed the measured wrapping width.");
                 editor.ScrollToEnd();
                 draftWindow.UpdateLayout();
-                Require(editor.ExtentHeight > editor.ViewportHeight && editor.VerticalOffset > 0,
-                    "The bounded editor cannot scroll to the bottom on native overflow.");
+                Require(editor.VerticalOffset > 0, "The bounded editor cannot scroll to the bottom on native overflow.");
                 CheckBody(editor, scale);
             }
-            finally { draftWindow.Close(); }
+            finally { draftWindow.Content = null; draftWindow.Close(); }
             Console.WriteLine("PASS long WPF sent/received history and editable draft have bounded, reachable final lines");
+
+            // Exercise the real positioning entry point, not solely a manually
+            // arranged text box. Use an inert owner at the work area's edge.
+            owner.WindowStartupLocation = WindowStartupLocation.Manual;
+            owner.Width = 132;
+            owner.Height = 140;
+            owner.ShowActivated = false;
+            owner.Show();
+            var desktop = type.Assembly.GetType("HagoromoChan.Desktop.NativeDesktop", true)!;
+            var area = desktop.GetMethod("WorkArea", [typeof(Window)])!.Invoke(null, [owner])!;
+            int Px(object rect, string name) => (int)rect.GetType().GetProperty(name)!.GetValue(rect)!;
+            var edge = Activator.CreateInstance(area.GetType(), [
+                Px(area, "Right") - 136, Px(area, "Bottom") - 144, 132, 140])!;
+            desktop.GetMethod("SetBounds")!.Invoke(null, [owner, edge]);
+            Invoke("Attach");
+            Invoke("ShowMessage", "topic-user");
+            window.UpdateLayout();
+            var bounds = desktop.GetMethod("Bounds")!.Invoke(null, [window])!;
+            Require(Px(bounds, "X") >= Px(area, "X") && Px(bounds, "Y") >= Px(area, "Y") &&
+                Px(bounds, "Right") <= Px(area, "Right") && Px(bounds, "Bottom") <= Px(area, "Bottom"),
+                "The production HWND escaped the monitor's work area.");
+            var (nativeWidth, nativeHeight) = ((int, int))desktop.GetMethod("ClientSize")!.Invoke(null, [window])!;
+            var actualDpi = VisualTreeHelper.GetDpi(root).DpiScaleX;
+            Require(root.ClipToBounds && root.MaxHeight * actualDpi <= nativeHeight + 1
+                && root.Width * actualDpi <= nativeWidth + 1, "The actual client budget is exceeded by the content host.");
+            Require(stack.Children.Count > 0, "Current sent message did not render via the production placement path.");
+            void InsideClient(FrameworkElement frame)
+            {
+                var origin = frame.TranslatePoint(new Point(0, 0), window);
+                Require(origin.Y >= -1 / actualDpi &&
+                    (origin.Y + frame.ActualHeight) * actualDpi <= nativeHeight + 1,
+                    "A production frame protrudes past the native client's bottom.");
+            }
+            foreach (FrameworkElement card in stack.Children)
+                InsideClient(card);
+
+            // The isolated draft host was detached before it closed.
+            Invoke("SetDraftText", topic);
+            Invoke("OpenBoth");
+            window.UpdateLayout();
+            var composer = (FrameworkElement?)type.GetField("_composerBubble",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(panels);
+            Require(composer?.IsVisible == true, "The live composer did not fit the production client.");
+            InsideClient(composer!);
+            CheckBody(editor, actualDpi);
+            Console.WriteLine("PASS placement path keeps the native window and rendered frames in the work area");
         }
         finally
         {
             Invoke("PrepareForShutdown");
             window.Close();
+            if (owner.IsVisible)
+                owner.Close();
         }
     }
 

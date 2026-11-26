@@ -27,6 +27,14 @@ internal static class BubbleLayout
     public static double HistoryBodyBudget(double available, double chrome, double scale) =>
         Math.Max(0, RoundDown(available - chrome, scale));
 
+    // Physical HWND/client pixels are capped before converting to DIP. Mixing
+    // owner and destination DPI here can give WPF more space than it can paint.
+    public static double ClientDip(int requestedPixels, int clientPixels, double scale) =>
+        Math.Max(0, Math.Min(requestedPixels, clientPixels)) / scale;
+
+    public static double ConversationBodyBudget(double clientHeight, double navigationHeight, double scale) =>
+        Math.Max(0, RoundDown(clientHeight - RoundUp(navigationHeight, scale) - RoundUp(2, scale), scale));
+
     public static double ComposerBodyBudget(double available, double chrome, double feedback,
         double minimumBody, double historyReserve, double scale)
     {

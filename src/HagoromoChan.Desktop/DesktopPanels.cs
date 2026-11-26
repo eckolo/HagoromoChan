@@ -27,7 +27,7 @@ internal sealed class DesktopPanels
     private readonly Window[] _windows;
     private readonly HashSet<Window> _requested = [];
     private readonly HashSet<Window> _hooked = [];
-    private readonly StackPanel _conversationRoot = new();
+    private readonly StackPanel _conversationRoot = new() { ClipToBounds = true };
     private readonly StackPanel _historyStack = new();
     private readonly StackPanel _composerBody = new();
     private readonly TextBlock _draftPageLabel = Label("", 12);
@@ -38,7 +38,7 @@ internal sealed class DesktopPanels
     private readonly Border _navFrame;
     private readonly Button _closeConversation = ActionButton("×");
     private readonly TextBlock _historyUnavailable = Label("入力を閉じると履歴を表示できます。", 12);
-    private readonly TextBox _probe = BodyBox(allowOverflowScroll: false);
+    private readonly TextBox _probe = BodyBox();
     private readonly TextBlock _probeBlock = new()
     {
         FontFamily = new FontFamily("Yu Gothic UI, Meiryo"), FontSize = 14,
@@ -183,12 +183,24 @@ internal sealed class DesktopPanels
         };
         Conversation.PreviewMouseWheel += (_, e) =>
         {
-            if (!HistoryOpen || _history.Length == 0 || _composing || _composerBubble?.IsMouseOver == true)
+            if (_composing)
                 return;
-            // A rendered page normally fits. If native TextBox layout nevertheless
-            // needs a scrollbar, scroll that page first; nav buttons still page.
-            if (_cards.Values.Any(entry => entry.Body.IsMouseOver && CanScrollBody(entry.Body, e.Delta)))
+            if (_composerBubble?.IsMouseOver == true)
+            {
+                if (MessageInput.IsMouseOver && ScrollBody(MessageInput, e.Delta))
+                    e.Handled = true;
                 return;
+            }
+            if (!HistoryOpen || _history.Length == 0)
+                return;
+            // Consume wheel input inside a clipped native text viewport only
+            // when it can scroll further. At its edge, the same wheel pages.
+            foreach (var entry in _cards.Values)
+                if (entry.Body.IsMouseOver && ScrollBody(entry.Body, e.Delta))
+                {
+                    e.Handled = true;
+                    return;
+                }
             _wheelRemainder += e.Delta;
             while (Math.Abs(_wheelRemainder) >= 120)
             {
@@ -706,18 +718,34 @@ internal sealed class DesktopPanels
         _probeBlock.Text = text;
         _probeBlock.Width = width;
         _probeBlock.Measure(new Size(width, double.PositiveInfinity));
-        // Match the live TextBox's explicit width and layout rounding, keep the
-        // conservative independent wrapper, then reserve a physical pixel.
-        var height = Math.Ceiling(Math.Max(_probe.DesiredSize.Height, _probeBlock.DesiredSize.Height)) + 8;
-        return BubbleLayout.HistoryBodyHeight(height, scale);
+        // Measure both wrappers, then arrange the actual TextBox template at
+        // that width to account for its content host and the last line's bounds.
+        // Hidden scrolling preserves the same wrapping width in probe and body.
+        var desired = Math.Ceiling(Math.Max(_probe.DesiredSize.Height, _probeBlock.DesiredSize.Height)) + 8;
+        _probe.Arrange(new Rect(0, 0, width, BubbleLayout.RoundUp(desired, scale)));
+        var extent = _probe.ExtentHeight;
+        if (double.IsFinite(extent))
+            desired = Math.Max(desired, extent);
+        if (text.Length > 0)
+        {
+            var last = _probe.GetRectFromCharacterIndex(text.Length - 1, trailingEdge: true);
+            if (!last.IsEmpty && double.IsFinite(last.Bottom))
+                desired = Math.Max(desired, last.Bottom + _probe.VerticalOffset);
+        }
+        return BubbleLayout.HistoryBodyHeight(desired, scale);
     }
 
-    private static bool CanScrollBody(TextBox box, int wheelDelta)
+    private static bool ScrollBody(TextBox box, int wheelDelta)
     {
-        if (wheelDelta == 0 || box.ExtentHeight <= box.ViewportHeight)
+        var maximum = box.ExtentHeight - box.ViewportHeight;
+        if (wheelDelta == 0 || !double.IsFinite(maximum) || maximum <= .01)
             return false;
-        return wheelDelta > 0 ? box.VerticalOffset > .01
-            : box.VerticalOffset + box.ViewportHeight + .01 < box.ExtentHeight;
+        var offset = box.VerticalOffset;
+        var next = Math.Clamp(offset - wheelDelta * (48.0 / 120), 0, maximum);
+        if (Math.Abs(next - offset) <= .01)
+            return false;
+        box.ScrollToVerticalOffset(next);
+        return true;
     }
 
     public void RequestArrange()
@@ -737,22 +765,26 @@ internal sealed class DesktopPanels
         _arranging = true;
         try
         {
-            var scale = NativeDesktop.Scale(_owner);
+            var ownerScale = NativeDesktop.Scale(_owner);
             var area = NativeDesktop.WorkArea(_owner);
             var anchor = NativeDesktop.Bounds(_owner);
-            int Px(double dip) => Math.Max(1, (int)Math.Ceiling(dip * scale));
+            int Px(double dip) => Math.Max(1, (int)Math.Ceiling(dip * ownerScale));
             var gap = Px(8);
-            var zone = OverlayLayout.ConversationZone(area, anchor, scale);
+            var zone = OverlayLayout.ConversationZone(area, anchor, ownerScale);
             if (ConversationOpen)
             {
                 _side = zone.Side;
-                var width = zone.Bounds.Width / scale;
-                var maxHeight = zone.Bounds.Height / scale;
+                // Establish the destination HWND/DPI first. The owner may still
+                // be on another display, and its DIP is not the text viewport's.
+                var scale = PositionAt(Conversation, zone.Bounds);
+                var (clientWidth, clientHeight) = NativeDesktop.ClientSize(Conversation);
+                var width = BubbleLayout.ClientDip(zone.Bounds.Width, clientWidth, scale);
+                var maxHeight = BubbleLayout.ClientDip(zone.Bounds.Height, clientHeight, scale);
                 var bodyWidth = BubbleLayout.BodyWidth(width, scale);
                 var vertical = _side is OverlaySide.Above or OverlaySide.Below;
                 var composerChrome = vertical ? 84.0 : 72.0;
                 var composerHeight = 0.0;
-                var available = Math.Max(0, maxHeight - NavHeight - 2);
+                var available = BubbleLayout.ConversationBodyBudget(maxHeight, NavHeight, scale);
                 if (ComposerOpen)
                 {
                     var minimumLine = bodyWidth >= BubbleLayout.MinimumBodyWidth
@@ -829,9 +861,13 @@ internal sealed class DesktopPanels
                 _navFrame.HorizontalAlignment = _side == OverlaySide.Left ? HorizontalAlignment.Right
                     : _side == OverlaySide.Right ? HorizontalAlignment.Left : HorizontalAlignment.Center;
                 _conversationRoot.Width = width;
-                // Bottom-aligned content inside a fixed transparent surface.
-                // Do not resize/reposition a layered HWND for every history navigation.
+                _conversationRoot.MaxHeight = maxHeight;
+                // Keep the transparent window's established anchor, but only
+                // lay out content in its measured in-bounds client rectangle.
                 ShowAt(Conversation, zone.Bounds);
+                if (NativeDesktop.Scale(Conversation) != scale ||
+                    NativeDesktop.ClientSize(Conversation) != (clientWidth, clientHeight))
+                    RequestArrange();
             }
             else HideIfVisible(Conversation);
 
@@ -889,31 +925,33 @@ internal sealed class DesktopPanels
         return window;
     }
 
-    private void ShowAt(Window window, ScreenRect rect)
+    private double PositionAt(Window window, ScreenRect rect)
     {
         _ = NativeDesktop.Handle(window);
         if (window == Status && _hooked.Add(window))
             NativeDesktop.PreventMouseActivation(window);
-        if (window.IsVisible)
-        {
-            // Do not force UpdateLayout or resize/move an unchanged surface on every poll.
-            if (NativeDesktop.Bounds(window) == rect) return;
-            NativeDesktop.SetBounds(window, rect);
-            var dpi = NativeDesktop.Scale(window);
-            if (Math.Abs(window.Width - rect.Width / dpi) > .001) window.Width = rect.Width / dpi;
-            if (Math.Abs(window.Height - rect.Height / dpi) > .001) window.Height = rect.Height / dpi;
-            NativeDesktop.SetBounds(window, rect);
-            return;
-        }
+        // Moving the HWND can change its effective DPI. Convert the final
+        // rectangle to WPF dimensions using the destination, not the owner.
+        NativeDesktop.SetBounds(window, rect);
+        var dpi = NativeDesktop.Scale(window);
+        if (Math.Abs(window.Width - rect.Width / dpi) > .001) window.Width = rect.Width / dpi;
+        if (Math.Abs(window.Height - rect.Height / dpi) > .001) window.Height = rect.Height / dpi;
+        NativeDesktop.SetBounds(window, rect);
+        return dpi;
+    }
 
-        NativeDesktop.Move(window, rect.X, rect.Y);
-        var scale = NativeDesktop.Scale(window);
-        window.Width = rect.Width / scale;
-        window.Height = rect.Height / scale;
-        NativeDesktop.SetBounds(window, rect);
-        window.Show();
-        // Show and initial DPI adjustment can modify the native bounds.
-        NativeDesktop.SetBounds(window, rect);
+    private void ShowAt(Window window, ScreenRect rect)
+    {
+        // An unchanged, already-visible surface requires no repeated WPF layout.
+        if (window.IsVisible && NativeDesktop.Bounds(window) == rect)
+            return;
+        PositionAt(window, rect);
+        if (!window.IsVisible)
+        {
+            window.Show();
+            // WPF may amend the initial DPI and HWND bounds on Show.
+            PositionAt(window, rect);
+        }
     }
 
     private static void HideIfVisible(Window window)
@@ -993,11 +1031,11 @@ internal sealed class DesktopPanels
         TextWrapping = TextWrapping.Wrap, Foreground = Ink
     };
 
-    private static TextBox BodyBox(bool allowOverflowScroll = true) => new()
+    private static TextBox BodyBox() => new()
     {
         TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, FontSize = 14,
         FontFamily = new FontFamily("Yu Gothic UI, Meiryo"),
-        VerticalScrollBarVisibility = allowOverflowScroll ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         UseLayoutRounding = true, ClipToBounds = true,
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         Background = Brushes.Transparent, Foreground = Ink,

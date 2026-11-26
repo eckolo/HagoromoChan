@@ -36,6 +36,13 @@ internal static class NativeDesktop
         return rect.ToScreenRect();
     }
 
+    public static (int Width, int Height) ClientSize(Window window)
+    {
+        if (!GetClientRect(Handle(window), out var rect))
+            throw new InvalidOperationException("ウィンドウの本文領域を取得できません。");
+        return (rect.Right - rect.Left, rect.Bottom - rect.Top);
+    }
+
     public static (int X, int Y)? TryCursor() =>
         GetCursorPos(out var point) ? (point.X, point.Y) : null;
 
@@ -109,6 +116,10 @@ internal static class NativeDesktop
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(nint hwnd, out NativeRect rect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(nint hwnd, out NativeRect rect);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
