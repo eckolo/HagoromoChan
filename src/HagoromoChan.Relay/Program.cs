@@ -117,6 +117,14 @@ app.MapPost("/api/m05/sources", (SaveCloudSourceRequest request, ChatStore store
 app.MapGet("/api/m05/sources/{sourceId}/answers", (string sourceId, long? after, int? limit, ChatStore store) =>
     store.ReadCloudAnswers(sourceId, after ?? 0, limit ?? 50));
 
+app.MapPost("/api/m05/work-discovery", (McpHandler handler) => handler.WorkPull.Discover());
+app.MapPost("/api/m05/work-discovery/{operationId}/select/{conversationId}",
+    (string operationId, string conversationId, McpHandler handler) => handler.WorkPull.SelectChoice(operationId, conversationId));
+app.MapPost("/api/m05/sources/{sourceId}/work-retrieval", (string sourceId, McpHandler handler) =>
+    handler.WorkPull.Start(sourceId));
+app.MapGet("/api/m05/work-retrieval/{operationId}", (string operationId, McpHandler handler) =>
+    handler.WorkPull.Status(operationId));
+
 app.MapPost("/mcp", async (HttpRequest request, McpHandler handler, CancellationToken cancellationToken) =>
 {
     if (!request.HasJsonContentType())

@@ -23,6 +23,9 @@ internal sealed class CloudImportsWindow : Window
     };
     private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly StackPanel controls = new();
+    private readonly Button pullWork;
+    private readonly ComboBox workChoices = new() { DisplayMemberPath = nameof(WorkSourceCandidate.Title) };
+    private string? discoveryOperation;
     private long cursor;
     private bool busy;
     private bool refreshing;
@@ -52,7 +55,13 @@ internal sealed class CloudImportsWindow : Window
         actions.Children.Add(Button("登録・更新", async () => await SaveAsync()));
         actions.Children.Add(Button("再読込", async () => await ReloadAsync()));
         actions.Children.Add(Button("次の回答", async () => await RunAsync(() => ReadAsync(reset: false))));
+        pullWork = Button("Workの最新回答を取得", async () => await PullWorkAsync());
+        pullWork.IsEnabled = false;
+        actions.Children.Add(pullWork);
+        actions.Children.Add(Button("Work候補を探す", async () => await DiscoverWorkAsync()));
         controls.Children.Add(actions);
+        Add("取得可能なWork候補", workChoices);
+        controls.Children.Add(Button("選んだWorkを登録", async () => await RegisterWorkAsync()));
         Add("元の会話で明示転送するときに使う登録ID", receipt);
         controls.Children.Add(status);
         sources.SelectionChanged += async (_, _) =>
@@ -107,6 +116,7 @@ internal sealed class CloudImportsWindow : Window
 
     private void ApplySelection()
     {
+        pullWork.IsEnabled = sources.SelectedItem is CloudSource { Kind: "work" };
         if (sources.SelectedItem is not CloudSource source)
         {
             receipt.Clear();
@@ -117,6 +127,65 @@ internal sealed class CloudImportsWindow : Window
         title.Text = source.Title;
         receipt.Text = source.Id;
     }
+
+    private Task DiscoverWorkAsync() => RunAsync(async () =>
+    {
+        discoveryOperation = null;
+        workChoices.ItemsSource = null;
+        status.Text = "取得可能なWorkを問い合わせています。";
+        var result = await WaitForWorkAsync(await relay.DiscoverWorkAsync(lifetime));
+        if (!IsLoaded) return;
+        discoveryOperation = result.State == "choices" ? result.OperationId : null;
+        workChoices.ItemsSource = result.Choices;
+        if (result.Choices is { Length: > 0 }) workChoices.SelectedIndex = 0;
+        status.Text = result.Choices is { Length: > 0 } ? "登録するWorkを選んでください。" :
+            result.State == "choices" ? "取得可能なWorkは見つかりませんでした。" : "Work候補の確認が時間内に完了しませんでした。";
+    });
+
+    private Task RegisterWorkAsync() => RunAsync(async () =>
+    {
+        if (discoveryOperation is not { } operation || workChoices.SelectedItem is not WorkSourceCandidate selected)
+        {
+            status.Text = "先に取得可能なWork候補を探してください。";
+            return;
+        }
+        var source = await relay.RegisterDiscoveredWorkAsync(operation, selected.ConversationId, lifetime);
+        await LoadSourcesAsync(source.Id);
+        await ReadAsync(reset: true);
+    });
+
+    private async Task<WorkPullStatus> WaitForWorkAsync(WorkPullStatus state)
+    {
+        while (IsLoaded && state.State == "pending")
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), lifetime);
+            if (!IsLoaded) break;
+            state = await relay.ReadWorkRetrievalAsync(state.OperationId, lifetime);
+        }
+        return state;
+    }
+
+    private Task PullWorkAsync() => RunAsync(async () =>
+    {
+        if (sources.SelectedItem is not CloudSource { Kind: "work" } source) return;
+        var state = await relay.StartWorkRetrievalAsync(source.Id, lifetime);
+        status.Text = "Workの回答取得を依頼しました。";
+        state = await WaitForWorkAsync(state);
+        if (!IsLoaded) return;
+        if (state.Answer is { } answer)
+        {
+            answers.Text = answer.Text;
+            answers.ScrollToHome();
+            status.Text = "Workの回答を取得しました。";
+        }
+        else status.Text = state.State switch
+        {
+            "unavailable" => "Work回答の原文を取得できませんでした。",
+            "not_authorized" => "このWorkを読み取る権限がありません。",
+            "not_found" => "Workまたは完了した回答が見つかりません。",
+            _ => "取得が時間内に完了しませんでした。"
+        };
+    });
 
     private async Task ReadAsync(bool reset)
     {

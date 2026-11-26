@@ -7,6 +7,8 @@ namespace HagoromoChan.Relay;
 
 public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
 {
+    public WorkRetrieval WorkPull { get; } = new(store);
+
     public const string EventName = "message.created";
     public const string SupportedChannel = "hagoromo-mini";
     private const string LatestProtocol = "2025-11-25";
@@ -167,12 +169,64 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             },
             annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
         });
+        tools.Add(new
+        {
+            name = "get_pending_work_retrieval",
+            description = "Read the next explicit Windows SSP Work transcript request. Only an authorized Work reader should call this.",
+            inputSchema = new { type = "object", properties = new { }, additionalProperties = false },
+            annotations = new { readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false }
+        });
+        tools.Add(new
+        {
+            name = "complete_work_retrieval",
+            description = "Resolve an explicit Windows SSP request. For available, supply the latest completed assistant answer's original ID and exact complete body from the authorized matching Work transcript. Do not summarize, infer, copy a user prompt, or post to that Work.",
+            inputSchema = new
+            {
+                type = "object",
+                properties = new
+                {
+                    operation_id = new { type = "string" }, source_id = new { type = "string" },
+                    conversation_id = new { type = "string" },
+                    state = new { type = "string", @enum = new[] { "available", "unavailable", "not_authorized", "not_found" } },
+                    message_id = new { type = "string" }, text = new { type = "string", maxLength = 32768 }
+                },
+                required = new[] { "operation_id", "source_id", "conversation_id", "state" }, additionalProperties = false
+            },
+            annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
+        });
+        tools.Add(new
+        {
+            name = "complete_work_discovery",
+            description = "Return up to 25 authorized cloud Work choices for an explicit SSP discovery request. Include only verified Work conversation IDs and verified titles, never ordinary Chat; return an empty list when no authorized Work is available.",
+            inputSchema = new
+            {
+                type = "object",
+                properties = new
+                {
+                    operation_id = new { type = "string" },
+                    choices = new
+                    {
+                        type = "array", maxItems = 25,
+                        items = new
+                        {
+                            type = "object",
+                            properties = new { conversation_id = new { type = "string" }, title = new { type = "string", maxLength = 200 } },
+                            required = new[] { "conversation_id", "title" }, additionalProperties = false
+                        }
+                    }
+                },
+                required = new[] { "operation_id", "choices" }, additionalProperties = false
+            },
+            annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
+        });
         return new { tools };
     }
 
     private object CallTool(JsonElement parameters)
     {
         var name = RequiredString(parameters, "name");
+        if (name is "get_pending_work_retrieval" or "complete_work_retrieval" or "complete_work_discovery")
+            return HandleWorkTool(name, RequiredObject(parameters, "arguments"));
         if (name == "import_cloud_answer")
             return ImportCloudAnswer(RequiredObject(parameters, "arguments"));
         if (name is not ("get_context" or "reply" or "send_message"))
@@ -211,6 +265,60 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             return ToolError("a_different_final_reply_already_exists");
         }
     }
+
+    private object HandleWorkTool(string name, JsonElement arguments)
+    {
+        if (name == "get_pending_work_retrieval")
+        {
+            ValidateProperties(arguments, []);
+            var item = WorkPull.Next();
+            return WorkToolResult(new { pending = item is null ? null : new
+            {
+                operation_id = item.OperationId, action = item.Action, source_id = item.SourceId, conversation_id = item.ConversationId
+            } });
+        }
+
+        if (name == "complete_work_discovery")
+        {
+            ValidateProperties(arguments, ["operation_id", "choices"]);
+            if (!arguments.TryGetProperty("choices", out var supplied) || supplied.ValueKind != JsonValueKind.Array ||
+                supplied.GetArrayLength() > 25)
+                throw InvalidParams("Expected bounded Work choices.");
+            var choices = supplied.EnumerateArray().Select(entry =>
+            {
+                ValidateProperties(entry, ["conversation_id", "title"]);
+                return new WorkSourceCandidate(RequiredString(entry, "conversation_id"), RequiredString(entry, "title"));
+            }).ToArray();
+            try
+            {
+                var receipt = WorkPull.CompleteDiscovery(RequiredString(arguments, "operation_id"), choices);
+                return WorkToolResult(new { count = receipt.Choices!.Length });
+            }
+            catch (ValidationException) { return ToolError("invalid_work_discovery_result"); }
+            catch (ConflictException) { return ToolError("different_work_discovery_result_already_exists"); }
+            catch (KeyNotFoundException) { return ToolError("work_discovery_request_not_found"); }
+        }
+
+        ValidateProperties(arguments, ["operation_id", "source_id", "conversation_id", "state", "message_id", "text"]);
+        string? Optional(string key) => arguments.TryGetProperty(key, out _) ? RequiredString(arguments, key) : null;
+        try
+        {
+            var receipt = WorkPull.Complete(new(RequiredString(arguments, "operation_id"),
+                RequiredString(arguments, "source_id"), RequiredString(arguments, "conversation_id"),
+                RequiredString(arguments, "state"), Optional("message_id"), Optional("text")));
+            return WorkToolResult(new { state = receipt.State, stored = receipt.Answer is not null });
+        }
+        catch (ValidationException) { return ToolError("invalid_work_retrieval_result"); }
+        catch (ConflictException) { return ToolError("different_work_retrieval_result_already_exists"); }
+        catch (KeyNotFoundException) { return ToolError("work_retrieval_request_not_found"); }
+    }
+
+    private static object WorkToolResult(object data) => new
+    {
+        content = new[] { new { type = "text", text = JsonSerializer.Serialize(data) } },
+        structuredContent = data,
+        isError = false
+    };
 
     private object ImportCloudAnswer(JsonElement arguments)
     {

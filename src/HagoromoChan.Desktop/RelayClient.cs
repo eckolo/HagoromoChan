@@ -38,6 +38,21 @@ internal sealed class RelayClient : IDisposable
     public Task<RelayStatus> RetryDeliveryAsync(CancellationToken cancellationToken) =>
         SendAsync<RelayStatus>(HttpMethod.Post, "/api/retry", null, cancellationToken);
 
+    public Task<WorkPullStatus> DiscoverWorkAsync(CancellationToken cancellationToken) =>
+        SendAsync<WorkPullStatus>(HttpMethod.Post, "/api/m05/work-discovery", null, cancellationToken);
+
+    public Task<CloudSource> RegisterDiscoveredWorkAsync(string operationId, string conversationId, CancellationToken cancellationToken) =>
+        SendAsync<CloudSource>(HttpMethod.Post,
+            $"/api/m05/work-discovery/{Uri.EscapeDataString(operationId)}/select/{Uri.EscapeDataString(conversationId)}", null, cancellationToken);
+
+    public Task<WorkPullStatus> StartWorkRetrievalAsync(string sourceId, CancellationToken cancellationToken) =>
+        SendAsync<WorkPullStatus>(HttpMethod.Post,
+            $"/api/m05/sources/{Uri.EscapeDataString(sourceId)}/work-retrieval", null, cancellationToken);
+
+    public Task<WorkPullStatus> ReadWorkRetrievalAsync(string operationId, CancellationToken cancellationToken) =>
+        SendAsync<WorkPullStatus>(HttpMethod.Get,
+            $"/api/m05/work-retrieval/{Uri.EscapeDataString(operationId)}", null, cancellationToken);
+
     public Task<CloudSource[]> GetCloudSourcesAsync(CancellationToken cancellationToken) =>
         SendAsync<CloudSource[]>(HttpMethod.Get, "/api/m05/sources", null, cancellationToken);
 

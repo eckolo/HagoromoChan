@@ -96,7 +96,7 @@ internal static class CloudImportChecks
 
         var names = (await Call("tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray()
             .Select(tool => tool.GetProperty("name").GetString()).ToHashSet();
-        Must(names.SetEquals(new[] { "get_context", "reply", "send_message", "import_cloud_answer" }),
+        Must(names.SetEquals(new[] { "get_context", "reply", "send_message", "import_cloud_answer", "get_pending_work_retrieval", "complete_work_retrieval", "complete_work_discovery" }),
             "Normal MCP advertises the new tool without dropping a legacy tool");
 
         async Task<JsonElement> Import(string source, string id, string body) =>
@@ -107,6 +107,63 @@ internal static class CloudImportChecks
 
         var chat = fixtures.Single(item => item.Source.Kind == "chat").Source;
         var work = fixtures.Single(item => item.Source.Kind == "work").Source;
+        Throws<ValidationException>(() => handler.WorkPull.Start(chat.Id));
+        async Task<JsonElement> WorkTool(string name, object arguments) =>
+            (await Call("tools/call", new { name, arguments })).GetProperty("result");
+
+        const string retrieve = "get_pending_work_retrieval";
+        const string complete = "complete_work_retrieval";
+        Must((await WorkTool(retrieve, new { })).GetProperty("structuredContent").GetProperty("pending")
+            .ValueKind == JsonValueKind.Null, "No Work read before an explicit SSP request");
+        var discovery = handler.WorkPull.Discover();
+        Must(handler.WorkPull.Next() is { Action: "discover" }, "Only explicit SSP discovery is queued");
+        var found = Guid.NewGuid().ToString("D");
+        Must(!(await WorkTool("complete_work_discovery", new
+        {
+            operation_id = discovery.OperationId, choices = new[] { new { conversation_id = found, title = "Fixture Work" } }
+        })).GetProperty("isError").GetBoolean(), "Verified Work choice accepted");
+        Must(store.ListCloudSources().Length == fixtures.Length, "Discovery does not register before selection");
+        Throws<KeyNotFoundException>(() => handler.WorkPull.SelectChoice(discovery.OperationId, Guid.NewGuid().ToString("D")));
+        var selected = handler.WorkPull.SelectChoice(discovery.OperationId, found);
+        Must(selected.Kind == "work" && selected.Title == "Fixture Work" &&
+            handler.WorkPull.SelectChoice(discovery.OperationId, found).Id == selected.Id,
+            "Selection alone registers the authorized candidate idempotently");
+        var pull = handler.WorkPull.Start(work.Id);
+        Must(handler.WorkPull.Start(work.Id) == pull, "Coalesce another request while pending");
+        var queued = (await WorkTool(retrieve, new { })).GetProperty("structuredContent").GetProperty("pending");
+        var conversation = new Uri(work.Url).AbsolutePath.Split('/')[^1];
+        Must(queued.GetProperty("conversation_id").GetString() == conversation &&
+            queued.GetProperty("operation_id").GetString() == pull.OperationId, "Reader gets exact registered Work identity");
+        var message = Guid.NewGuid().ToString("D");
+        const string exact = "  complete Work body\nsecond line  ";
+        object Completion(string operation, string source, string conversationId, string text) => new
+        {
+            operation_id = operation, source_id = source, conversation_id = conversationId,
+            state = "available", message_id = message, text
+        };
+        Must((await WorkTool(complete, Completion(pull.OperationId, chat.Id, conversation, exact)))
+            .GetProperty("isError").GetBoolean(), "Wrong registered source rejected");
+        Must((await WorkTool(complete, Completion(pull.OperationId, work.Id, Guid.NewGuid().ToString("D"), exact)))
+            .GetProperty("isError").GetBoolean(), "Wrong conversation rejected");
+        Must(!(await WorkTool(complete, Completion(pull.OperationId, work.Id, conversation, exact)))
+            .GetProperty("isError").GetBoolean(), "Exact completed answer accepted");
+        Must(!(await WorkTool(complete, Completion(pull.OperationId, work.Id, conversation, exact)))
+            .GetProperty("isError").GetBoolean(), "Exact result replay accepted");
+        Must((await WorkTool(complete, Completion(pull.OperationId, work.Id, conversation, exact + "!")))
+            .GetProperty("isError").GetBoolean(), "Changed result rejected");
+        Must(handler.WorkPull.Status(pull.OperationId).Answer?.Text == exact, "SSP receives exact original body");
+        var pullAgain = handler.WorkPull.Start(work.Id);
+        Must(!(await WorkTool(complete, Completion(pullAgain.OperationId, work.Id, conversation, exact)))
+            .GetProperty("isError").GetBoolean() &&
+            store.ReadCloudAnswers(work.Id).Answers.Count(a => a.Text == exact) == 1,
+            "Fetching the same original Work message twice leaves one persisted row");
+        var denied = handler.WorkPull.Start(work.Id);
+        Must(!(await WorkTool(complete, new
+        {
+            operation_id = denied.OperationId, source_id = work.Id, conversation_id = conversation, state = "not_authorized"
+        })).GetProperty("isError").GetBoolean() &&
+            handler.WorkPull.Status(denied.OperationId) is { State: "not_authorized", Answer: null },
+            "Denied reads never create a body");
         foreach (var source in new[] { chat, work })
         {
             var id = Guid.NewGuid().ToString("D");
