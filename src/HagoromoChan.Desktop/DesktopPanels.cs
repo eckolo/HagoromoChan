@@ -38,8 +38,12 @@ internal sealed class DesktopPanels
     private readonly Border _navFrame;
     private readonly Button _closeConversation = ActionButton("×");
     private readonly TextBlock _historyUnavailable = Label("入力を閉じると履歴を表示できます。", 12);
-    private readonly TextBox _probe = BodyBox();
-    private readonly TextBlock _probeBlock = Label("");
+    private readonly TextBox _probe = BodyBox(allowOverflowScroll: false);
+    private readonly TextBlock _probeBlock = new()
+    {
+        FontFamily = new FontFamily("Yu Gothic UI, Meiryo"), FontSize = 14,
+        TextWrapping = TextWrapping.Wrap, UseLayoutRounding = true
+    };
     private readonly Dictionary<string, IReadOnlyList<TextSlice>> _historyPages = new(StringComparer.Ordinal);
     private readonly StackPanel _statusContent = new();
     private readonly Action<IReadOnlyList<string>> _markRead;
@@ -59,6 +63,8 @@ internal sealed class DesktopPanels
     private int? _forcedDraftOffset;
     private double _draftWidth;
     private double _draftMaximum;
+    private double _draftScale;
+    private double? _measurementScale;
     private int _wheelRemainder;
     private ChatMessage[] _history = [];
     private HashSet<string> _unread = new(StringComparer.Ordinal);
@@ -69,7 +75,7 @@ internal sealed class DesktopPanels
     private double _historyScale;
     private OverlaySide _side = OverlaySide.Right;
     private readonly List<HistoryCardKey> _renderedKeys = [];
-    private readonly Dictionary<HistoryCardKey, (DockPanel Card, Button Read)> _cards = [];
+    private readonly Dictionary<HistoryCardKey, (DockPanel Card, Button Read, TextBox Body)> _cards = [];
     private readonly record struct HistoryCardKey(string Id, int Start, int Length, double Height,
         int Page, int PageCount, double Width, double Scale, OverlaySide Side);
     private DockPanel? _composerBubble;
@@ -178,6 +184,10 @@ internal sealed class DesktopPanels
         Conversation.PreviewMouseWheel += (_, e) =>
         {
             if (!HistoryOpen || _history.Length == 0 || _composing || _composerBubble?.IsMouseOver == true)
+                return;
+            // A rendered page normally fits. If native TextBox layout nevertheless
+            // needs a scrollbar, scroll that page first; nav buttons still page.
+            if (_cards.Values.Any(entry => entry.Body.IsMouseOver && CanScrollBody(entry.Body, e.Delta)))
                 return;
             _wheelRemainder += e.Delta;
             while (Math.Abs(_wheelRemainder) >= 120)
@@ -426,18 +436,25 @@ internal sealed class DesktopPanels
         finally { _assigningDraft = false; }
     }
 
-    private double LayoutDraft(double width, double maximum)
+    private double LayoutDraft(double width, double maximum, double scale)
     {
+        MessageInput.Width = MessageInput.MaxWidth = width;
         if (_composing)
-            return Math.Min(maximum, double.IsFinite(MessageInput.Height) ? Math.Max(1, MessageInput.Height) : 44);
+        {
+            // Preserve the live IME composition and keep its bounded viewport.
+            var composingHeight = Math.Min(maximum, double.IsFinite(MessageInput.Height) ? Math.Max(1, MessageInput.Height) : 44);
+            MessageInput.Height = composingHeight;
+            return composingHeight;
+        }
 
-        var reflow = _draftMeasuredText != _draft || _draftWidth != width || _draftMaximum != maximum;
+        var reflow = _draftMeasuredText != _draft || _draftWidth != width || _draftMaximum != maximum || _draftScale != scale;
         if (reflow)
         {
-            _draftPages = TextPaging.Split(_draft, maximum, text => MeasureText(text, width));
+            _draftPages = TextPaging.Split(_draft, maximum, text => MeasureBodyText(text, width, scale));
             _draftMeasuredText = _draft;
             _draftWidth = width;
             _draftMaximum = maximum;
+            _draftScale = scale;
         }
         var forced = _forcedDraftOffset;
         var offset = forced ?? _draftCaret;
@@ -463,7 +480,6 @@ internal sealed class DesktopPanels
         _draftNext.IsEnabled = page + 1 < _draftPages.Count;
         _draftPageLabel.Text = multiple ? $"入力 {page + 1}/{_draftPages.Count}" : "Ctrl+Enter";
         var height = Math.Min(maximum, Math.Max(44, slice.Height));
-        MessageInput.Width = width;
         MessageInput.Height = height;
         return height;
     }
@@ -487,7 +503,7 @@ internal sealed class DesktopPanels
     {
         var message = _history[index];
         if (_historyPages.TryGetValue(message.Id, out var pages)) return pages;
-        pages = TextPaging.Split(message.Text, _historyMaximum, text => MeasureHistoryText(text, _historyWidth, _historyScale));
+        pages = TextPaging.Split(message.Text, _historyMaximum, text => MeasureBodyText(text, _historyWidth, _historyScale));
         _historyPages[message.Id] = pages;
         return pages;
     }
@@ -573,7 +589,7 @@ internal sealed class DesktopPanels
         var chrome = BubbleLayout.HistoryChrome(side, Gap, scale);
         var maximum = BubbleLayout.HistoryBodyBudget(available, chrome, scale);
         if (!HistoryOpen || _history.Length == 0 || bodyWidth < BubbleLayout.MinimumBodyWidth
-            || maximum < Math.Max(44, MeasureHistoryText("あ😀", bodyWidth, scale)))
+            || maximum < Math.Max(44, MeasureBodyText("あ😀", bodyWidth, scale)))
         {
             ClearHistory();
             _historyMaximum = 0;
@@ -631,7 +647,7 @@ internal sealed class DesktopPanels
             _cards.Remove(key);
     }
 
-    private (DockPanel Card, Button Read) BuildHistoryCard(HistoryPosition p, double bodyWidth, OverlaySide side, double chrome)
+    private (DockPanel Card, Button Read, TextBox Body) BuildHistoryCard(HistoryPosition p, double bodyWidth, OverlaySide side, double chrome)
     {
             var message = _history[p.Message];
             var pages = Pages(p.Message);
@@ -669,24 +685,40 @@ internal sealed class DesktopPanels
             var bubble = Bubble(content, user ? UserPaper : AssistantPaper, user ? Opposite(side) : side);
             bubble.Height = slice.Height + chrome - Gap;
             bubble.Margin = new Thickness(0, 0, 0, Gap);
-            return (bubble, read);
+            return (bubble, read, body);
     }
 
-    private double MeasureText(string text, double width)
+    private double MeasureBodyText(string text, double width, double scale)
     {
-        _probe.Width = width;
+        if (_measurementScale != scale)
+        {
+            // These probes are detached roots, so they do not inherit the
+            // conversation's monitor DPI through a visual parent.
+            var dpi = new DpiScale(scale, scale);
+            VisualTreeHelper.SetRootDpi(_probe, dpi);
+            VisualTreeHelper.SetRootDpi(_probeBlock, dpi);
+            _measurementScale = scale;
+        }
+
+        _probe.Width = _probe.MaxWidth = width;
         _probe.Text = text;
         _probe.Measure(new Size(width, double.PositiveInfinity));
         _probeBlock.Text = text;
         _probeBlock.Width = width;
         _probeBlock.Measure(new Size(width, double.PositiveInfinity));
-        // Both the native TextBox and a wrapping TextBlock are measured; the small
-        // extra allowance covers line/caret and pixel rounding differences.
-        return Math.Ceiling(Math.Max(_probe.DesiredSize.Height, _probeBlock.DesiredSize.Height)) + 8;
+        // Match the live TextBox's explicit width and layout rounding, keep the
+        // conservative independent wrapper, then reserve a physical pixel.
+        var height = Math.Ceiling(Math.Max(_probe.DesiredSize.Height, _probeBlock.DesiredSize.Height)) + 8;
+        return BubbleLayout.HistoryBodyHeight(height, scale);
     }
 
-    private double MeasureHistoryText(string text, double width, double scale) =>
-        BubbleLayout.HistoryBodyHeight(MeasureText(text, width), scale);
+    private static bool CanScrollBody(TextBox box, int wheelDelta)
+    {
+        if (wheelDelta == 0 || box.ExtentHeight <= box.ViewportHeight)
+            return false;
+        return wheelDelta > 0 ? box.VerticalOffset > .01
+            : box.VerticalOffset + box.ViewportHeight + .01 < box.ExtentHeight;
+    }
 
     public void RequestArrange()
     {
@@ -723,10 +755,8 @@ internal sealed class DesktopPanels
                 var available = Math.Max(0, maxHeight - NavHeight - 2);
                 if (ComposerOpen)
                 {
-                    // Keep room for history on normal screens; on narrow work areas
-                    // the independent context-menu toggles make room for one view.
                     var minimumLine = bodyWidth >= BubbleLayout.MinimumBodyWidth
-                        ? Math.Max(44, MeasureText("あ😀", bodyWidth)) : double.PositiveInfinity;
+                        ? Math.Max(44, MeasureBodyText("あ😀", bodyWidth, scale)) : double.PositiveInfinity;
                     if (available < composerChrome + minimumLine)
                     {
                         if (_composerBubble is not null)
@@ -739,12 +769,14 @@ internal sealed class DesktopPanels
                             var feedback = SendFeedbackText.Visibility == Visibility.Visible
                                 ? Math.Min(38.0, Math.Max(0, available - composerChrome - minimumLine)) : 0;
                             SendFeedbackText.MaxHeight = feedback;
-                            var cap = !HistoryOpen || _history.Length == 0 || available < 320
-                                ? available
-                                : Math.Max(130, available * .34);
-                            cap = Math.Min(available, Math.Max(cap, composerChrome + feedback + minimumLine));
-                            var maxText = Math.Max(minimumLine, Math.Floor(cap - composerChrome - feedback));
-                            var editorHeight = LayoutDraft(bodyWidth, maxText);
+                            var historyReserve = HistoryOpen && _history.Length != 0
+                                ? BubbleLayout.HistoryChrome(_side, Gap, scale) + minimumLine + 1 / scale
+                                : 0;
+                            var maxText = BubbleLayout.ComposerBodyBudget(available, composerChrome,
+                                feedback, minimumLine, historyReserve, scale);
+                            if (maxText < minimumLine)
+                                throw new InvalidOperationException("The available display area cannot fit the editor.");
+                            var editorHeight = LayoutDraft(bodyWidth, maxText, scale);
                             composerHeight = editorHeight + composerChrome + feedback;
                             SendFeedbackText.ToolTip = SendFeedbackText.Text;
                             if (_composerBubble is null)
@@ -961,11 +993,12 @@ internal sealed class DesktopPanels
         TextWrapping = TextWrapping.Wrap, Foreground = Ink
     };
 
-    private static TextBox BodyBox() => new()
+    private static TextBox BodyBox(bool allowOverflowScroll = true) => new()
     {
         TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, FontSize = 14,
         FontFamily = new FontFamily("Yu Gothic UI, Meiryo"),
-        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = allowOverflowScroll ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
+        UseLayoutRounding = true, ClipToBounds = true,
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         Background = Brushes.Transparent, Foreground = Ink,
         BorderThickness = new Thickness(0), Padding = new Thickness(0)

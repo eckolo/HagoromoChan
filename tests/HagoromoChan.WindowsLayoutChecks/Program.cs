@@ -66,12 +66,102 @@ internal static class Program
                 Require(rebuilt.ToString() == text, "Paginated history lost or repeated text.");
             }
             Console.WriteLine("PASS M22 rendered WPF history wraps and pages without a horizontal frame shift");
+
+            var topic = string.Join("\r\n", Enumerable.Range(1, 10).Select(i =>
+                $"{i:D2} 合成の検証文です。日本語とABC123を混ぜた段落を折り返して表示します。次の行に続く文章を最後まで読めるか確認します。"))
+                + "\r\n最終行を含む。";
+            Require(topic.Length is >= 550 and <= 750, "Long topic fixture must stay close to 600 characters.");
+            Invoke("UpdateHistory", new[]
+            {
+                new ChatMessage(1, "topic-user", "user", topic, null, DateTimeOffset.UnixEpoch),
+                new ChatMessage(2, "topic-assistant", "assistant", topic, "topic-user", DateTimeOffset.UnixEpoch)
+            }, Array.Empty<string>());
+            foreach (var role in new[] { "user", "assistant" })
+            foreach (var side in new[] { "Right", "Left", "Above", "Below" })
+            {
+                var start = 0;
+                while (start < topic.Length)
+                {
+                    anchor.Invoke(panels, ["topic-" + role, start]);
+                    Invoke("RenderHistory", width, 250.0, Enum.Parse(overlaySide, side), scale);
+                    window.UpdateLayout();
+                    Require(stack.Children.Count > 0, "Long topic history page disappeared.");
+                    var card = (DockPanel)stack.Children[0];
+                    Require(card.ActualHeight <= 250 + 1 / scale, "Native card exceeds its height budget.");
+                    var frame = (Border)card.Children[1];
+                    var body = (TextBox)((StackPanel)frame.Child).Children[1];
+                    CheckBody(body, scale);
+                    Require(body.Text.Length > 0 && topic.AsSpan(start).StartsWith(body.Text, StringComparison.Ordinal),
+                        "History page breaks changed the message.");
+                    start += body.Text.Length;
+                }
+                Require(start == topic.Length, "Not all history text is reachable.");
+            }
+
+            var editorHost = (FrameworkElement)type.GetField("_composerBody",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(panels)!;
+            var editor = (TextBox)type.GetProperty("MessageInput")!.GetValue(panels)!;
+            var forced = type.GetField("_forcedDraftOffset", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var draftWindow = new Window { Width = 540, Height = 790, Content = editorHost, ShowActivated = false };
+            draftWindow.Show();
+            try
+            {
+                var draftWidth = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [500.0, scale])!;
+                Invoke("SetDraftText", "短文");
+                var oneLine = (double)Invoke("LayoutDraft", draftWidth, 650.0, scale)!;
+                Invoke("SetDraftText", topic);
+                forced.SetValue(panels, 0);
+                var grown = (double)Invoke("LayoutDraft", draftWidth, 650.0, scale)!;
+                draftWindow.UpdateLayout();
+                Require(grown > oneLine && grown <= 650 && editor.Text == topic, "The draft did not grow to its needed height.");
+                CheckBody(editor, scale);
+
+                for (var start = 0; start < topic.Length;)
+                {
+                    forced.SetValue(panels, start);
+                    var reduced = (double)Invoke("LayoutDraft", draftWidth, 125.0, scale)!;
+                    draftWindow.UpdateLayout();
+                    Require(reduced <= 125 + 1 / scale, "Draft height exceeded the compact budget.");
+                    CheckBody(editor, scale);
+                    Require(editor.Text.Length > 0 && topic.AsSpan(start).StartsWith(editor.Text, StringComparison.Ordinal),
+                        "Draft page breaks changed the message.");
+                    start += editor.Text.Length;
+                }
+
+                // Force native viewport pressure to exercise the escape path independently
+                // of the normal (usually sufficient) detached measurement.
+                editor.Text = topic;
+                editor.Height = 44;
+                draftWindow.UpdateLayout();
+                editor.ScrollToEnd();
+                draftWindow.UpdateLayout();
+                Require(editor.ExtentHeight > editor.ViewportHeight && editor.VerticalOffset > 0,
+                    "The bounded editor cannot scroll to the bottom on native overflow.");
+                CheckBody(editor, scale);
+            }
+            finally { draftWindow.Close(); }
+            Console.WriteLine("PASS long WPF sent/received history and editable draft have bounded, reachable final lines");
         }
         finally
         {
             Invoke("PrepareForShutdown");
             window.Close();
         }
+    }
+
+    private static void CheckBody(TextBox box, double scale)
+    {
+        Require(box.Text.Length > 0 && box.LineCount > 0, "Body page is empty.");
+        if (box.ExtentHeight > box.ViewportHeight + 1 / scale)
+        {
+            box.ScrollToEnd();
+            box.UpdateLayout();
+        }
+        var last = box.GetRectFromCharacterIndex(box.Text.Length - 1, trailingEdge: true);
+        // A page may end at a line break; in that case WPF puts the caret on
+        // the next line, which the page budget includes.
+        Require(!last.IsEmpty && last.Right <= box.ActualWidth + 1 / scale
+            && last.Bottom <= box.ActualHeight + 1 / scale, "Last character is cut off in the native viewport.");
     }
 
     private static void Require(bool condition, string message)
