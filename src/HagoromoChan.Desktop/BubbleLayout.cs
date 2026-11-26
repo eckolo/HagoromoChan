@@ -18,14 +18,16 @@ internal static class BubbleLayout
         - 2 * (RoundUp(TailDepth, scale) + RoundUp(FrameBorder, scale) + RoundUp(FramePadding, scale)), scale));
 
     public static double HistoryChrome(OverlaySide side, double gap, double scale) =>
-        2 * (RoundUp(FrameBorder, scale) + RoundUp(FramePadding, scale))
-        + RoundUp(HistoryHeader, scale) + RoundUp(HistoryHeaderGap, scale)
-        + (Vertical(side) ? RoundUp(TailDepth, scale) : 0) + RoundUp(gap, scale);
+        // Retain the original minimum clearance, even when the nominal sum is smaller.
+        Math.Max(Vertical(side) ? 74 : 62,
+            2 * (RoundUp(FrameBorder, scale) + RoundUp(FramePadding, scale))
+            + RoundUp(HistoryHeader, scale) + RoundUp(HistoryHeaderGap, scale)
+            + (Vertical(side) ? RoundUp(TailDepth, scale) : 0) + RoundUp(gap, scale));
 
     public static double HistoryBodyBudget(double available, double chrome, double scale) =>
         Math.Max(0, RoundDown(available - chrome, scale));
 
-    // Both the probe and renderer use the same read-only text control. Round up,
-    // and leave one device pixel for its last baseline / layout rounding.
+    // The caller supplies a conservative height from the wrapping text probes.
+    // Round up and leave one device pixel for the last baseline / layout rounding.
     public static double HistoryBodyHeight(double desired, double scale) => RoundUp(desired, scale) + 1 / scale;
 }
