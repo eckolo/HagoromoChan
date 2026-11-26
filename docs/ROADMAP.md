@@ -48,6 +48,8 @@
 | M37 | 羽衣ちゃんのイラストの髪の隙間の透過修正 | 優先度は着手時に確認 | M03の立ち絵、M09のアクション素材 | `milestone/M37-hair-gap-alpha` | [M37](milestones/M37.md) |
 | MGMT-38 | イラストの透過修正を登録 | 管理 | MGMT-36 | `milestone/MGMT-38-register-hair-gap-alpha` | [MGMT-38](milestones/MGMT-38.md) |
 | MGMT-39 | キャラクター動作の拡張方針を恒久化 | 管理 | M21、MGMT-30 | `milestone/MGMT-39-action-extensibility-rule` | [MGMT-39](milestones/MGMT-39.md) |
+| MGMT-40 | キャラクターアクションの追加計画と運用を登録 | 管理 | MGMT-39、M33 | `milestone/MGMT-40-register-character-action-followups` | [MGMT-40](milestones/MGMT-40.md) |
+| M41 | アプリ起動時のキャラクターアクション | 優先度は着手時に確認 | M08・M09・M21（完了） | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
 
 ## 着手順と依存
 
