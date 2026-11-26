@@ -19,16 +19,17 @@ $savedEnv=@{}
 foreach($name in $vars){$savedEnv[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $prod='http://127.0.0.1:48732'
 $pin='4244fe7b5fd1ecef48f20f9287545c6b26a1abce'
-# Pass the script directory to Git unchanged; do not decode a Git-emitted path.
+# Compute the checkout root natively; git archive from scripts/ exports only that subtree.
 # Git for Windows emits UTF-8, while Windows PowerShell 5.1 may decode stdout
 # using a legacy code page. The values captured below are ASCII only.
+$localRepo=Split-Path -Parent $PSScriptRoot
 $inside=$null
-try { $inside=git -C $PSScriptRoot rev-parse --is-inside-work-tree 2>$null } catch {}
+try { $inside=git -C $localRepo rev-parse --is-inside-work-tree 2>$null } catch {}
 if($LASTEXITCODE -ne 0 -or $inside -cne 'true'){
   throw 'Run this script from scripts\ inside your local HagoromoChan Git checkout.'
 }
 $resolvedPin=$null
-try { $resolvedPin=git -C $PSScriptRoot rev-parse --verify --quiet "$pin^{commit}" 2>$null } catch {}
+try { $resolvedPin=git -C $localRepo rev-parse --verify --quiet "$pin^{commit}" 2>$null } catch {}
 if($LASTEXITCODE -ne 0 -or $resolvedPin -cne $pin){
   throw 'The M05 source commit is missing. Run git fetch origin milestone/M05-other-conversations and retry.'
 }
@@ -68,10 +69,23 @@ try {
   foreach($name in @('HAGOROMO_MANAGED_SESSION','HAGOROMO_STOP_EVENT','HAGOROMO_CONTROL_PIPE')){[Environment]::SetEnvironmentVariable($name,$null,'Process')}
   Write-Host "Trial folder: $base"
   $archive=Join-Path $base 'pinned-source.zip'
-  git -C $PSScriptRoot archive --format=zip "--output=$archive" $pin
+  git -C $localRepo archive --format=zip "--output=$archive" $pin
   if($LASTEXITCODE -ne 0){throw 'Pinned source export from the local Git checkout failed.'}
   Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $required=@('src/HagoromoChan.Relay/RelaySettings.cs','src/HagoromoChan.Desktop/RelayClient.cs',
+    'src/HagoromoChan.Relay/HagoromoChan.Relay.csproj','src/HagoromoChan.Desktop/HagoromoChan.Desktop.csproj','HagoromoChan.sln')
+  $zip=[IO.Compression.ZipFile]::OpenRead($archive)
+  try {
+    foreach($relative in $required){
+      if($null -eq $zip.GetEntry($relative)){throw "Pinned source ZIP is missing: $relative"}
+    }
+  } finally {$zip.Dispose()}
   [IO.Compression.ZipFile]::ExtractToDirectory($archive,$repo)
+  foreach($relative in $required){
+    if(-not (Test-Path -LiteralPath (Join-Path $repo $relative) -PathType Leaf)){
+      throw "Extracted pinned source is missing: $relative"
+    }
+  }
   Write-Host "Source: $pin (local Git objects)"
   $socket=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0); $socket.Start(); $port=$socket.LocalEndpoint.Port; $socket.Stop()
   if($port -eq 48732){throw 'port collision'}
