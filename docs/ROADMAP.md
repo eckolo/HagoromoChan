@@ -38,6 +38,8 @@
 | M28 | 会話履歴のMarkdown表示 | 優先度は着手時に確認 | M03、M22の改ページと整合 | `milestone/M28-history-markdown` | [M28](milestones/M28.md) |
 | M29 | 画像ファイルの送受信 | 優先度は着手時に確認 | M03、M04の送受信。追加連携は設計時に確認 | `milestone/M29-image-attachments` | [M29](milestones/M29.md) |
 
+| MGMT-30 | 継続指示の記録・再確認と動作確認の依頼ルール | 管理 | MGMT-25 | `milestone/MGMT-30-record-standing-verification-rules` | [MGMT-30](milestones/MGMT-30.md) |
+
 ## 着手順と依存
 
 - M03 はアプリの必須機能であり、最優先で基本 UI を実用段階に進める。M04～M06・M08～M10 は原則その後に検討する。M03 の完了自体を一律の技術的依存とはせず、完了前の並行着手は必要性を整理しユーザーと合意する。
