@@ -7,9 +7,10 @@ namespace HagoromoChan.Desktop;
 
 internal static class MascotArtwork
 {
-    public static BitmapSource Load(string dataDirectory, out string? warning)
+    public static BitmapSource Load(string dataDirectory, out string? warning, out bool bundledArtwork)
     {
         warning = null;
+        bundledArtwork = false;
         var path = Path.Combine(dataDirectory, "mascot.png");
         if (File.Exists(path))
         {
@@ -29,6 +30,7 @@ internal static class MascotArtwork
 
         var resource = Application.GetResourceStream(new Uri("pack://application:,,,/HagoromoChan.Desktop;component/Assets/Mascot.png"))
             ?? throw new InvalidOperationException("同梱立ち絵が見つかりません。");
+        bundledArtwork = true;
         using var bundled = resource.Stream;
         return ReadPng(bundled);
     }

@@ -13,5 +13,14 @@
   <ItemGroup>
     <ProjectReference Include="../HagoromoChan.Contracts/HagoromoChan.Contracts.csproj" />
     <Resource Include="Assets/Mascot.png" />
+    <Resource Include="Assets/MascotReactions.png" />
+    <Resource Include="Assets/MascotThinkingBody.png" />
+    <Resource Include="Assets/MascotThinkingHead.png" />
+    <Resource Include="Assets/MascotThinkingEyes.png" />
+    <Resource Include="Assets/MascotThinkingHand.png" />
+    <Resource Include="Assets/MascotUnread.png" />
+    <Resource Include="Assets/MascotUnreadEyes.png" />
+    <Resource Include="Assets/MascotFarewellBody.png" />
+    <Resource Include="Assets/MascotFarewellHand.png" />
   </ItemGroup>
 </Project>

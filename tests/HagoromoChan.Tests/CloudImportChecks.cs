@@ -1,5 +1,6 @@
 using HagoromoChan.Contracts;
 using HagoromoChan.Relay;
+using HagoromoChan.Desktop;
 
 internal static class CloudImportChecks
 {
@@ -19,6 +20,11 @@ internal static class CloudImportChecks
                 store.AddUserMessage(new SendMessageRequest(sendId, "pending", null));
                 var dotBefore = store.ReadMessages();
                 var dotStatus = store.GetStatus();
+                var inbox = new ReactionInbox();
+                var reaction = new CharacterReactionState();
+                Must(inbox.ObserveCompletedRead(dotBefore.Messages, dotBefore.NextCursor).Count == 0, "Initial Dot history does not replay");
+                reaction.SendAccepted(sendId, 0);
+                Must(reaction.WaitingForReply && reaction.Sample(1000).Pose == ReactionPose.Thinking, "Dot request is pending");
                 var firstUrl = $"https://chatgpt.com/c/{Guid.NewGuid():D}";
                 var secondUrl = $"https://chatgpt.com/g/g-p-project/c/{Guid.NewGuid():D}";
                 first = store.SaveCloudSource(new("chat", firstUrl + "?tracking=discard", "同名"));
@@ -41,8 +47,24 @@ internal static class CloudImportChecks
                 Must(dotBefore.Messages.SequenceEqual(store.ReadMessages().Messages) &&
                     dotBefore.NextCursor == store.ReadMessages().NextCursor, "No Dot row or cursor change");
                 Must(dotStatus.QueuedCount == store.GetStatus().QueuedCount, "No outbox change");
+                var duringImport = store.ReadMessages();
+                var importedReception = inbox.ObserveCompletedRead(duringImport.Messages, duringImport.NextCursor);
+                reaction.Receive(importedReception, 1500);
+                Must(importedReception.Count == 0 && reaction.WaitingForReply &&
+                    reaction.Sample(1501).Pose == ReactionPose.Thinking, "Import must not animate or settle Dot");
+
                 var reply = store.AddReply(sendId, "本物のDot返信");
                 Must(store.ReadMessages(dotBefore.NextCursor).Messages.Single() == reply, "Real reply arrives exactly once");
+                var completed = store.ReadMessages();
+                var reception = inbox.ObserveCompletedRead(completed.Messages, completed.NextCursor);
+                Must(reception.Single() == reply, "Matching Dot reply reaches the M09 observer");
+                reaction.Receive(reception, 2000);
+                Must(!reaction.WaitingForReply && reaction.Sample(2001).Pose == ReactionPose.Jump,
+                    "Real Dot reply settles the request and animates");
+                var replay = inbox.ObserveCompletedRead(completed.Messages, completed.NextCursor);
+                reaction.Receive(replay, 2400);
+                Must(replay.Count == 0 && reaction.Sample(2651).Pose == ReactionPose.Idle,
+                    "Same completed read must not restart the reception animation");
             }
             using (var store = new ChatStore(db))
             {

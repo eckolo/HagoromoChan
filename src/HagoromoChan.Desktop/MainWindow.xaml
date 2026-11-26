@@ -6,7 +6,11 @@
         Background="Transparent" ShowInTaskbar="False" ShowActivated="False"
         WindowStartupLocation="Manual" Topmost="True" UseLayoutRounding="True"
         FontFamily="Yu Gothic UI, Meiryo" FontSize="14">
-    <Image x:Name="MascotImage" Stretch="Uniform" StretchDirection="DownOnly" Cursor="Hand"
-           AutomationProperties.Name="羽衣ちゃん。クリックで会話、ドラッグで移動、右クリックで設定"
-           RenderOptions.BitmapScalingMode="HighQuality" />
+    <Grid x:Name="MascotSurface" Cursor="Hand"
+          AutomationProperties.Name="羽衣ちゃん。クリックで会話、ドラッグで移動、右クリックで設定">
+        <!-- Keep the resting silhouette hittable when a frame lifts the feet. -->
+        <Image x:Name="RestingSilhouette" Stretch="Uniform" StretchDirection="DownOnly" Opacity="0.005" />
+        <Image x:Name="MascotImage" Stretch="Uniform" StretchDirection="DownOnly"
+               RenderOptions.BitmapScalingMode="HighQuality" />
+    </Grid>
 </Window>

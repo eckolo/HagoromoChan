@@ -197,6 +197,7 @@ public partial class MainWindow : Window
                 // Persist the request ID and exact text before any network side effect.
                 await _pendingStore.SaveAsync(request, _lifetime.Token);
                 _pending = request;
+                _reactionRequestId = request.RequestId;
             }
 
             await _relayGate.WaitAsync(_lifetime.Token);
@@ -214,6 +215,7 @@ public partial class MainWindow : Window
                     _pendingAccepted = true;
                 }
 
+                NotifyLocalAcceptance();
                 FinishAcceptedMessage();
                 RefreshHistory();
                 _panels.SelectLatest();
@@ -229,6 +231,8 @@ public partial class MainWindow : Window
         }
         catch (Exception error) when (IsRecoverable(error))
         {
+            if (_pending is null || error is HttpRequestException { StatusCode: System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.Conflict })
+                _reactions.Fail(Environment.TickCount64);
             var guidance = _pending is null
                 ? "送信内容を保存できませんでした。入力を残したまま、もう一度送信できます。"
                 : "送信結果を確認できません。「再試行」で同じメッセージの受付を確認します。";
@@ -401,7 +405,7 @@ public partial class MainWindow : Window
             if (_imeComposing || _compositionJustEnded)
                 return; // Let the IME handle Escape before hiding the composer.
             e.Handled = true;
-            _panels.CloseComposer();
+            ChangeConversationByUser(_panels.CloseComposer);
             return;
         }
 
@@ -421,13 +425,21 @@ public partial class MainWindow : Window
         _panels.SetComposing(false);
     }
 
-    private void RefreshHistory() =>
+    private void RefreshHistory()
+    {
         _panels.UpdateHistory(_messages.Select(item => item.Message).ToArray(), _preferences.UnreadIds);
+        // The first complete read reconciles the persisted checkpoint before the pose follows it.
+        if (_historyLoaded)
+            _reactions.SetUnread(_preferences.UnreadIds.Count > 0, Environment.TickCount64);
+    }
 
     private void ObserveReplies(bool firstCompleteRead)
     {
         var priorUnread = new HashSet<string>(_preferences.UnreadIds, StringComparer.Ordinal);
-        var changed = _preferences.Observe(_messages.Select(item => item.Message).ToArray(), _cursor);
+        var snapshot = _messages.Select(item => item.Message).ToArray();
+        var changed = _preferences.Observe(snapshot, _cursor);
+        NotifyLocalAcceptance();
+        _reactions.Receive(_reactionInbox.ObserveCompletedRead(snapshot, _cursor), Environment.TickCount64);
         var newUnread = _preferences.UnreadIds.Any(id => !priorUnread.Contains(id));
         RefreshHistory();
         if (changed)
@@ -456,7 +468,7 @@ public partial class MainWindow : Window
         var answer = messages.FirstOrDefault(message => _preferences.UnreadIds.Contains(message.Id))
             ?? messages.LastOrDefault();
         if (answer is not null)
-            _panels.ShowMessage(answer.Id);
+            ChangeConversationByUser(() => _panels.ShowMessage(answer.Id));
         RefreshStatus();
     }
 
