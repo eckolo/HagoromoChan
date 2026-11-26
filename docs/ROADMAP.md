@@ -26,7 +26,7 @@
 | M18 | 複数会話スレッドの切り替えUI・起動時の入力窓 | 高 | M03、M05 | `milestone/M18-conversation-switching-ui` | [M18](milestones/M18.md) |
 | M19 | 他会話への発言送信 | 高 | M05、M18 | `milestone/M19-cloud-conversation-send` | [M19](milestones/M19.md) |
 | MGMT-20 | M18へ起動時の入力窓の改善を記録 | 管理 | M18の登録 | `milestone/MGMT-20-record-startup-input` | [MGMT-20](milestones/MGMT-20.md) |
-| M21 | キャラクターアクションの順番制御・終了演出・バリエーション | 優先度は着手時に確認 | M09、終了経路はM08 | `milestone/M21-action-sequencing` | [M21](milestones/M21.md) |
+| M21 | キャラクターアクションの順番・中断制御と終了演出 | 優先度は着手時に確認 | M09、終了経路はM08 | `milestone/M21-action-sequencing` | [M21](milestones/M21.md) |
 | M22 | 会話吹き出しの本文枠の位置合わせ・長文表示 | 優先度は着手時に確認 | M03 | `milestone/M22-bubble-body-alignment` | [M22](milestones/M22.md) |
 | MGMT-23 | M05の作業分離とSSP追加要望の登録 | 管理 | MGMT-20、M05・M03・M08・M09の定義 | `milestone/MGMT-23-register-ssp-followups` | [MGMT-23](milestones/MGMT-23.md) |
 | MGMT-24 | M22に長文最終行のはみ出し修正を記録 | 管理 | M22の登録 | `milestone/MGMT-24-record-bubble-overflow` | [MGMT-24](milestones/MGMT-24.md) |
@@ -41,6 +41,8 @@
 | MGMT-30 | 継続指示の記録・再確認と動作確認の依頼ルール | 管理 | MGMT-25 | `milestone/MGMT-30-record-standing-verification-rules` | [MGMT-30](milestones/MGMT-30.md) |
 | MGMT-31 | 購読窓の表示調整と履歴ブックマークの登録 | 管理 | MGMT-30、M06 | `milestone/MGMT-31-register-status-and-bookmarks` | [MGMT-31](milestones/MGMT-31.md) |
 | M32 | 会話履歴のブックマークと呼び出し | 優先度は着手時に確認 | M03・M14、M26／M18との整合を確認 | `milestone/M32-history-bookmarks` | [M32](milestones/M32.md) |
+| M33 | 状況に応じたキャラクターアクションの選択 | 優先度は着手時に確認 | M21（再生・中断）、移動の統合にはM10 | `milestone/M33-contextual-action-selection` | [M33](milestones/M33.md) |
+| MGMT-34 | M21の範囲変更と状況に応じた動作選択の登録 | 管理 | M21、MGMT-31 | `milestone/MGMT-34-split-action-selection` | [MGMT-34](milestones/MGMT-34.md) |
 
 ## 着手順と依存
 
