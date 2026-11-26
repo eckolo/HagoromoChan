@@ -23,8 +23,9 @@
 | MGMT-15 | M04・M06の優先度改定とM09の早期並行着手方針 | 管理基盤 | MGMT-13、M08 | `milestone/MGMT-15-reprioritize-proactive-and-reactions` | [MGMT-15](milestones/MGMT-15.md) |
 | MGMT-16 | M06への購読元接続不一致・ツール更新後の復旧課題の追記 | 管理基盤 | MGMT-15 | `milestone/MGMT-16-record-subscription-connection-mismatch` | [MGMT-16](milestones/MGMT-16.md) |
 | MGMT-17 | 他会話アクセスの3分割・クラウド対象限定 | 管理基盤 | MGMT-16、M04 | `milestone/MGMT-17-split-cloud-conversation-access` | [MGMT-17](milestones/MGMT-17.md) |
-| M18 | 複数会話スレッドの切り替えUI | 高 | M03、M05 | `milestone/M18-conversation-switching-ui` | [M18](milestones/M18.md) |
+| M18 | 複数会話スレッドの切り替えUI・起動時の入力窓 | 高 | M03、M05 | `milestone/M18-conversation-switching-ui` | [M18](milestones/M18.md) |
 | M19 | 他会話への発言送信 | 高 | M05、M18 | `milestone/M19-cloud-conversation-send` | [M19](milestones/M19.md) |
+| MGMT-20 | M18へ起動時の入力窓の改善を記録 | 管理 | M18の登録 | `milestone/MGMT-20-record-startup-input` | [MGMT-20](milestones/MGMT-20.md) |
 
 ## 着手順と依存
 
