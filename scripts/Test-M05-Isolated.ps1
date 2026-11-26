@@ -19,12 +19,17 @@ $savedEnv=@{}
 foreach($name in $vars){$savedEnv[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $prod='http://127.0.0.1:48732'
 $pin='4244fe7b5fd1ecef48f20f9287545c6b26a1abce'
-$localRepo=git -C $PSScriptRoot rev-parse --show-toplevel 2>$null
-if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($localRepo)){
+# Pass the script directory to Git unchanged; do not decode a Git-emitted path.
+# Git for Windows emits UTF-8, while Windows PowerShell 5.1 may decode stdout
+# using a legacy code page. The values captured below are ASCII only.
+$inside=$null
+try { $inside=git -C $PSScriptRoot rev-parse --is-inside-work-tree 2>$null } catch {}
+if($LASTEXITCODE -ne 0 -or $inside -cne 'true'){
   throw 'Run this script from scripts\ inside your local HagoromoChan Git checkout.'
 }
-git -C $localRepo cat-file -e "$pin^{commit}" 2>$null
-if($LASTEXITCODE -ne 0){
+$resolvedPin=$null
+try { $resolvedPin=git -C $PSScriptRoot rev-parse --verify --quiet "$pin^{commit}" 2>$null } catch {}
+if($LASTEXITCODE -ne 0 -or $resolvedPin -cne $pin){
   throw 'The M05 source commit is missing. Run git fetch origin milestone/M05-other-conversations and retry.'
 }
 Add-Type -AssemblyName System.Net.Http
@@ -63,7 +68,7 @@ try {
   foreach($name in @('HAGOROMO_MANAGED_SESSION','HAGOROMO_STOP_EVENT','HAGOROMO_CONTROL_PIPE')){[Environment]::SetEnvironmentVariable($name,$null,'Process')}
   Write-Host "Trial folder: $base"
   $archive=Join-Path $base 'pinned-source.zip'
-  git -C $localRepo archive --format=zip "--output=$archive" $pin
+  git -C $PSScriptRoot archive --format=zip "--output=$archive" $pin
   if($LASTEXITCODE -ne 0){throw 'Pinned source export from the local Git checkout failed.'}
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   [IO.Compression.ZipFile]::ExtractToDirectory($archive,$repo)
