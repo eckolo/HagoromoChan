@@ -15,10 +15,10 @@ public sealed class WorkWakeDispatcher(McpHandler handler, WebhookClient webhook
         var ids = pending.Select(item => item.OperationId).ToHashSet(StringComparer.Ordinal);
         foreach (var stale in deliveries.Keys.Where(id => !ids.Contains(id)).ToArray()) deliveries.Remove(stale);
 
-        var subscription = handler.WorkWakeSubscription;
-        if (subscription is null || subscription.RefreshBefore <= now) return;
         var next = pending.FirstOrDefault(item => !deliveries.TryGetValue(item.OperationId, out var receipt) || receipt.After <= now);
         if (next is null) return;
+        var subscription = handler.WorkWakeSubscription;
+        if (subscription is null || subscription.Subscription.RefreshBefore <= now) return;
         deliveries.TryGetValue(next.OperationId, out var previous);
         var attempt = previous.Attempts + 1;
         try

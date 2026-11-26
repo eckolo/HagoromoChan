@@ -144,11 +144,55 @@ internal static class CloudImportChecks
     {
         public List<(string Url, string OperationId)> Sent { get; } = [];
         public override Task VerifyAsync(Subscription subscription, CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task SendWorkWakeAsync(Subscription subscription, string operationId, CancellationToken cancellationToken)
+        public override Task SendWorkWakeAsync(WorkWakeRegistration registration, string operationId, CancellationToken cancellationToken)
         {
-            Sent.Add((subscription.CallbackUrl, operationId));
+            Sent.Add((registration.Subscription.CallbackUrl, operationId));
             return Task.CompletedTask;
         }
+    }
+
+    public static void WorkWakeDurable()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hagoromo-work-wake-" + Guid.NewGuid().ToString("N"));
+        var db = Path.Combine(root, "chat.db");
+        var at = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var a = "whsec_" + Convert.ToBase64String(new byte[32]);
+        var b = "whsec_" + Convert.ToBase64String(Enumerable.Repeat((byte)1, 32).ToArray());
+        var dot = new Subscription("legacy", "https://fixture.example.test/dot", "fixture", at.AddHours(2));
+        var work = new Subscription("work", "https://fixture.example.test/work", a, at.AddHours(1));
+        try
+        {
+            using (var store = new ChatStore(db))
+            {
+                store.SaveSubscription(dot);
+                store.SaveWorkWakeSubscription(work, at);
+                store.SaveWorkWakeSubscription(work with { Secret = b }, at.AddSeconds(1));
+                store.SaveWorkWakeSubscription(work with { Secret = b, RefreshBefore = at.AddHours(2) }, at.AddSeconds(2));
+                Throws<ConflictException>(() => store.SaveWorkWakeSubscription(work with { Id = "other" }, at.AddSeconds(3)));
+            }
+            using (var store = new ChatStore(db))
+            {
+                var restored = store.GetWorkWakeRegistration() ?? throw new Exception("Missing Work subscription after restart");
+                Must(restored.Subscription.Secret == b && restored.RotateUntil == at.AddMinutes(5).AddSeconds(1),
+                    "Same-ID refresh retains replacement and original rotation window across restart");
+                byte[] body = [1, 2, 3];
+                var stamp = at.AddSeconds(4).ToUnixTimeSeconds();
+                var expected = WebhookClient.CreateSignature(b, "fixture_event", stamp, body) + " " +
+                    WebhookClient.CreateSignature(a, "fixture_event", stamp, body);
+                Must(WebhookClient.WorkWakeSignatures(restored, "fixture_event", stamp, body) == expected,
+                    "Work wake dual signature matches both keys during rotation");
+                stamp = at.AddMinutes(6).ToUnixTimeSeconds();
+                Must(WebhookClient.WorkWakeSignatures(restored, "fixture_event", stamp, body) ==
+                    WebhookClient.CreateSignature(b, "fixture_event", stamp, body),
+                    "Old key is no longer used after rotation");
+                store.RemoveWorkWakeSubscription("unrelated");
+                Must(store.GetWorkWakeRegistration() is not null, "Unrelated unsubscribe cannot clear Work");
+                store.RemoveWorkWakeSubscription("work");
+                Must(store.GetWorkWakeRegistration() is null, "Exact Work unsubscribe persists");
+                Must(store.GetSubscription()?.Id == dot.Id, "Work lifecycle leaves durable Dot subscription unchanged");
+            }
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
     }
 
     public static void DefaultMcp() => DefaultMcpAsync().GetAwaiter().GetResult();

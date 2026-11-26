@@ -57,10 +57,17 @@ already-authorized Work records and pass through the provider's exact metadata;
 neither the module nor the SSP creates an authorization grant. Native completed
 turn ID and item ID must match within the exact requested execution thread.
 Without a final-phase field the adapter accepts only one complete, untruncated
-assistant item in that completed turn; ambiguity is not a successful read.
+assistant item in that completed turn after exhausting bounded, consistent
+pagination. It rejects repeated cursors, changed turn snapshots, partial pages
+and multiple assistant candidates. Empty intermediate pages do not terminate
+enumeration.
 
-The native reader can return the exact completed text and opaque answer ID but
-the tested native record contains no title. The history representation is not
+The native reader exposes exact assistant item text and opaque ID but the
+tested native execution record has no title. In the authorized sample, the
+first page showed one candidate but four pages exposed two distinct assistant
+items on the same completed latest turn, with no final-phase marker. It is
+therefore unsuitable as a provable final answer. Older items had completion
+timestamps without a per-turn final outcome; timestamps alone are not proof. The history representation is not
 an authoritative alias. Work discovery must omit an entry unless the provider
 delivers an exact execution-thread ID with its verified title, and the adapter
 must not silently replace a selected answer if that item is no longer provable
@@ -112,13 +119,16 @@ trusted Work title-to-execution identity and a running authenticated worker.
 ## Candidate worker wake (not deployed)
 
 The relay candidate advertises `work.retrieval.requested` with a separate
-`hagoromo-work-retrieval` event channel. Its process-local subscription is
+`hagoromo-work-retrieval` event channel. Its durable subscription is
 separate from `message.created`; it uses the existing verified, signed HTTPS
 webhook transport but never replaces, persists as, or unsubscribes the Dot
 message subscriber. It emits only the dedicated channel and opaque operation
-ID, not a title, Work ID, prompt, answer, or read scope. Pending operations
-and wake subscriptions are temporary; the subscription must be renewed after
-Relay restart. The dispatcher retries transient delivery at most twice and
+ID, not a title, Work ID, prompt, answer, or read scope. Relay restart retains
+the separate callback subscription and its expiry; pending operations remain
+temporary. A verified renewal retains the original subscription ID; replacing
+a signing key signs both ways for five minutes, including across restart.
+Renewing with an unchanged key does not extend that window. The dispatcher
+retries transient delivery at most twice and
 never keeps emitting a wake once the webhook accepted it.
 
 A future platform administrator would first need the updated Relay on a
@@ -145,3 +155,12 @@ in this code provisions a live worker or grants it Work access.
 Synthetic C# exercises the isolated event schema, dispatch, exact pending
 lookup, and legacy subscription preservation; Node exercises scope, stale
 events, and no reads from forged event data.
+
+Platform contract sources: [MCP Events](https://developers.openai.com/plugins/build/mcp-events)
+requires retained subscriptions across restart and dual signatures during secret
+rotation. [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt)
+documents using an approved custom MCP connection and refreshing to discover
+updated metadata. Neither guide provides authorization to an existing user's
+native Work history. [Projects and chats](https://learn.chatgpt.com/docs/projects)
+distinguishes Work history from Codex history; the documented local Codex app
+server is not an alternative to the authorized cloud Work reader.

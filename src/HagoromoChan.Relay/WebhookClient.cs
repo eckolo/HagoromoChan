@@ -127,7 +127,7 @@ public class WebhookClient : IDisposable
         await PostAsync(delivery.Subscription, delivery.EventId, body, readResponse: false, cancellationToken);
     }
 
-    public virtual async Task SendWorkWakeAsync(Subscription subscription, string operationId,
+    public virtual async Task SendWorkWakeAsync(WorkWakeRegistration registration, string operationId,
         CancellationToken cancellationToken)
     {
         var eventId = "work_" + operationId;
@@ -138,7 +138,8 @@ public class WebhookClient : IDisposable
             timestamp = DateTimeOffset.UtcNow,
             data = new { channel_id = McpHandler.WorkWakeChannel, operation_id = operationId }
         });
-        await PostAsync(subscription, eventId, body, readResponse: false, cancellationToken);
+        await PostAsync(registration.Subscription, eventId, body, readResponse: false, cancellationToken,
+            workRegistration: registration);
     }
 
     private static object[] BuildInlineContext(PendingDelivery delivery)
@@ -255,8 +256,16 @@ public class WebhookClient : IDisposable
         }
     }
 
+    public static string WorkWakeSignatures(WorkWakeRegistration registration, string eventId, long timestamp,
+        ReadOnlySpan<byte> body)
+    {
+        var primary = CreateSignature(registration.Subscription.Secret, eventId, timestamp, body);
+        var secondary = registration.PreviousSecretAt(DateTimeOffset.FromUnixTimeSeconds(timestamp));
+        return secondary is null ? primary : primary + " " + CreateSignature(secondary, eventId, timestamp, body);
+    }
+
     private async Task<byte[]> PostAsync(Subscription subscription, string eventId, byte[] body,
-        bool readResponse, CancellationToken cancellationToken)
+        bool readResponse, CancellationToken cancellationToken, WorkWakeRegistration? workRegistration = null)
     {
         var uri = ValidateCallbackUri(subscription.CallbackUrl);
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -271,7 +280,9 @@ public class WebhookClient : IDisposable
         request.Headers.Add("webhook-timestamp", timestamp.ToString(CultureInfo.InvariantCulture));
         request.Headers.Add("webhook-signature", readResponse
             ? CreateSignature(subscription.Secret, eventId, timestamp, body)
-            : DeliverySignatures(subscription, eventId, timestamp, body));
+            : workRegistration is null
+                ? DeliverySignatures(subscription, eventId, timestamp, body)
+                : WorkWakeSignatures(workRegistration, eventId, timestamp, body));
         request.Headers.Add("X-MCP-Subscription-Id", subscription.Id);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

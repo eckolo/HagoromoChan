@@ -13,6 +13,7 @@ var tests = new (string Name, Action Run)[]
     ("M05 imports preserve Dot isolation, exact retries and source identity", CloudImportChecks.Run),
     ("M05 preview fixtures persist separately without touching Dot", CloudImportChecks.PreviewSeed),
     ("M05 scoped Work wake cannot claim another operation or alter the Dot subscription", CloudImportChecks.WorkWake),
+    ("M05 Work subscription and signing rotation survive restart independently", CloudImportChecks.WorkWakeDurable),
     ("M05 default MCP advertises scoped import and preserves the legacy tools", CloudImportChecks.DefaultMcp),
     ("Messages and channel binding persist across a restart", Persistence),
     ("Identical sends and replies are idempotent, conflicting retries fail", Idempotency),

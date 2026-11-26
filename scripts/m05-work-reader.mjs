@@ -15,7 +15,8 @@ export function verifiedWorkTitle(candidate) {
 }
 
 export function verifiedCompletedWorkAnswer(envelope, requestedThreadId) {
-    if (!envelope || envelope.threadId !== requestedThreadId || !id(requestedThreadId)) return null;
+    if (!envelope || envelope.threadId !== requestedThreadId || !id(requestedThreadId) ||
+        envelope.nextCursor !== null) return null;
     const turn = envelope.latestTurn;
     if (!turn || turn.status !== "completed" || !id(turn.id) ||
         !Number.isFinite(turn.completedAt) || turn.completedAt <= 0 || !Array.isArray(envelope.items)) return null;
@@ -26,6 +27,32 @@ export function verifiedCompletedWorkAnswer(envelope, requestedThreadId) {
     if (!id(answer.id) || answer.truncated !== false || !text(answer.text) ||
         !Number.isFinite(answer.completedAtMs) || answer.completedAtMs <= 0) return null;
     return { message_id: answer.id, text: answer.text };
+}
+
+// Do not assume a first page has every assistant item in the latest turn.
+// The native reader may return empty intermediate pages or split a turn.
+export async function collectNativeWorkPages(readWork, requestedThreadId, first) {
+    let envelope = first;
+    const firstTurn = first?.latestTurn;
+    if (!firstTurn || first?.threadId !== requestedThreadId) return null;
+    const seen = new Set();
+    const items = [];
+    for (let page = 0; page < 12; page++) {
+        const turn = envelope?.latestTurn;
+        if (envelope?.threadId !== requestedThreadId || !turn ||
+            turn.id !== firstTurn.id || turn.status !== firstTurn.status ||
+            turn.completedAt !== firstTurn.completedAt || !Array.isArray(envelope.items)) return null;
+        items.push(...envelope.items);
+        if (items.length > 200) return null;
+        const cursor = envelope.nextCursor;
+        if (cursor === null) return { ...first, items, nextCursor: null };
+        if (typeof cursor !== "string" || !cursor || cursor.length > 4096 || seen.has(cursor) || page === 11) return null;
+        seen.add(cursor);
+        const response = await readWork(requestedThreadId, cursor);
+        if (!response || response.state !== "authorized" || response.product !== "ChatGPT Work") return null;
+        envelope = response.envelope;
+    }
+    return null;
 }
 
 // next(), workMetadata(), readWork(), resolve*() all come from the authenticated
@@ -55,12 +82,14 @@ export async function serviceOneWorkRequest(host) {
         (action === "selected_answer" && !id(request.message_id))) return "invalid_operation";
     const key = { operation_id: request.operation_id, source_id: request.source_id,
         conversation_id: request.conversation_id };
-    const response = await host.readWork(request.conversation_id);
+    const response = await host.readWork(request.conversation_id, null);
     if (!response || response.state !== "authorized" || response.product !== "ChatGPT Work") {
         await host.resolveAnswer({ ...key, state: response?.state === "not_found" ? "not_found" : "not_authorized" });
         return "access_failed";
     }
-    const answer = verifiedCompletedWorkAnswer(response.envelope, request.conversation_id);
+    const snapshot = await collectNativeWorkPages(
+        (threadId, cursor) => host.readWork(threadId, cursor), request.conversation_id, response.envelope);
+    const answer = verifiedCompletedWorkAnswer(snapshot, request.conversation_id);
     if (!answer || (action === "selected_answer" && answer.message_id !== request.message_id)) {
         await host.resolveAnswer({ ...key, state: "unavailable" });
         return "body_unavailable";
@@ -95,8 +124,8 @@ export async function serviceWorkWake(wake, host) {
             }
             return accepted;
         },
-        readWork: async threadId => await host.allowedWork(threadId)
-            ? await host.readWork(threadId) : { state: "not_authorized" },
+        readWork: async (threadId, cursor) => await host.allowedWork(threadId)
+            ? await host.readWork(threadId, cursor) : { state: "not_authorized" },
         resolveDiscovery: data => host.resolveDiscovery(data),
         resolveChoices: data => host.resolveChoices(data),
         resolveAnswer: data => host.resolveAnswer(data)

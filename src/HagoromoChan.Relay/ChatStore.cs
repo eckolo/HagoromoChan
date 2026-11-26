@@ -43,6 +43,7 @@ public sealed partial class ChatStore : IDisposable
             pragmas.ExecuteNonQuery();
             InitializeSchema();
             InitializeCloudImports();
+            InitializeWorkWake();
         }
         catch
         {

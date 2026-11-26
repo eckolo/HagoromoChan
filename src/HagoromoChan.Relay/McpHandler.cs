@@ -13,8 +13,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
     public const string SupportedChannel = "hagoromo-mini";
     public const string WorkWakeEvent = "work.retrieval.requested";
     public const string WorkWakeChannel = "hagoromo-work-retrieval";
-    private Subscription? workWakeSubscription;
-    internal Subscription? WorkWakeSubscription => Volatile.Read(ref workWakeSubscription);
+    internal WorkWakeRegistration? WorkWakeSubscription => store.GetWorkWakeRegistration();
     private const string LatestProtocol = "2025-11-25";
     private static readonly TimeSpan SubscriptionLifetime = TimeSpan.FromDays(7);
     private readonly SemaphoreSlim subscriptionGate = new(1, 1);
@@ -528,7 +527,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         try
         {
             var isWork = callback.Event == WorkWakeEvent;
-            var previous = isWork ? WorkWakeSubscription : store.GetSubscription();
+            var previous = isWork ? WorkWakeSubscription?.Subscription : store.GetSubscription();
             if (isWork && previous is not null && previous.RefreshBefore > DateTimeOffset.UtcNow && previous.Id != subscription.Id)
                 throw new ConflictException("The Work wake subscription has an active owner.");
             try
@@ -541,7 +540,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
             }
             // Start the granted lifetime after verification, which can involve a network request.
             subscription = subscription with { RefreshBefore = DateTimeOffset.UtcNow.Add(lifetime) };
-            if (isWork) Volatile.Write(ref workWakeSubscription, subscription);
+            if (isWork) store.SaveWorkWakeSubscription(subscription, DateTimeOffset.UtcNow);
             else
             {
                 store.SaveSubscription(subscription);
@@ -562,10 +561,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         try
         {
             var id = SubscriptionId(callback.Url, callback.Event);
-            if (callback.Event == WorkWakeEvent)
-            {
-                if (WorkWakeSubscription?.Id == id) Volatile.Write(ref workWakeSubscription, null);
-            }
+            if (callback.Event == WorkWakeEvent) store.RemoveWorkWakeSubscription(id);
             else store.Unsubscribe(id);
             return new { };
         }

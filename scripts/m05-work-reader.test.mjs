@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { verifiedWorkTitle, verifiedCompletedWorkAnswer, serviceOneWorkRequest, serviceWorkWake } from "./m05-work-reader.mjs";
+import { verifiedWorkTitle, verifiedCompletedWorkAnswer, collectNativeWorkPages, serviceOneWorkRequest, serviceWorkWake } from "./m05-work-reader.mjs";
 
 const thread = "work_real_fixture";
 const turn = { status: "completed", id: "turn_completed", completedAt: 1234 };
 const item = { id: "msg_Opaque", turnId: turn.id, role: "assistant",
     truncated: false, completedAtMs: 1234567, text: " complete\noriginal " };
-const envelope = { threadId: thread, latestTurn: turn, items: [item] };
+const envelope = { threadId: thread, latestTurn: turn, items: [item], nextCursor: null };
 const record = { ...envelope, title: "Verified title" };
 assert.deepEqual(verifiedCompletedWorkAnswer(envelope, thread), { message_id: item.id, text: item.text });
 assert.equal(verifiedCompletedWorkAnswer(envelope, "similar_other"), null);
@@ -83,3 +83,24 @@ assert.equal(await serviceWorkWake(wake, {
 assert.equal(metadataReads, 1);
 assert.deepEqual(response.choices, [{ conversation_id: thread, title: "Verified title" }]);
 console.log("PASS scoped Work event wakes and no event data grants reads");
+
+const firstPage = { ...envelope, nextCursor: "cursor_1" };
+const emptyPage = { ...envelope, items: [], nextCursor: "cursor_2" };
+const laterAssistant = { ...item, id: "msg_other_in_same_turn" };
+const lastPage = { ...envelope, items: [laterAssistant] };
+assert.equal(verifiedCompletedWorkAnswer(firstPage, thread), null);
+const joined = await collectNativeWorkPages(async (id, cursor) => {
+    assert.equal(id, thread);
+    return { state: "authorized", product: "ChatGPT Work",
+        envelope: cursor === "cursor_1" ? emptyPage : lastPage };
+}, thread, firstPage);
+assert.equal(joined.items.length, 2);
+assert.equal(verifiedCompletedWorkAnswer(joined, thread), null);
+assert.equal(await collectNativeWorkPages(async () => ({
+    state: "authorized", product: "ChatGPT Work", envelope: firstPage
+}), thread, firstPage), null);
+assert.equal(await collectNativeWorkPages(async () => ({
+    state: "authorized", product: "ChatGPT Work",
+    envelope: { ...lastPage, latestTurn: { ...turn, id: "changed" } }
+}), thread, firstPage), null);
+console.log("PASS native pagination rejects hidden same-turn ambiguity, cursor loops and changed snapshots");
