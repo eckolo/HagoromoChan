@@ -7,14 +7,14 @@ turn, post to Work, use a signed-in browser, or read a private session file.
 1. In SSP, open the cloud-answer window and request Work choices. An authorized
    worker receives an explicit `discover` request via
    `get_pending_work_retrieval` and supplies up to 25 verified Work conversation
-   UUIDs with verified titles via `complete_work_discovery`. Only the choice
+   IDs with verified titles via `complete_work_discovery`. Only the choice
    the SSP user selects is registered; its ID is internal. No pasted link or ID
    is needed.
 2. Select the registered Work and request its latest answer. The worker receives
    a `latest_answer` request containing the operation, registered source, and
-   canonical conversation UUIDs. It must use its own authorized reader, verify
+   canonical provider conversation ID. It must use its own authorized reader, verify
    the Work identity and select the latest completed assistant answer with a
-   complete, readable original body and UUID. A user prompt or a metadata-only,
+   complete, readable original body and original provider message ID. A user prompt or a metadata-only,
    omitted, or partial body is not an answer.
 3. The worker returns the structured result through `complete_work_retrieval`,
    repeating the exact identifiers and body on retry. If access fails or the
@@ -33,3 +33,10 @@ schedule a worker. It does not enumerate account conversations itself. Unless an
 authorized worker is separately wired and running, discovery and retrieval time
 out; an integration test using a mock worker is not live account verification.
 Existing Dot request/reply/event behavior is unchanged.
+
+Provider conversation and message identifiers are opaque, case-sensitive
+unreserved URI tokens (1–200 characters). The app stores discovered Work
+under a separate provider identity namespace and does not invent a URL for it.
+Only the exact provider ID can bind a source/title or answer; a title/date/body
+match cannot identify an execution-side Work. Legacy private-URL registrations
+remain distinct and are not merged by heuristics.

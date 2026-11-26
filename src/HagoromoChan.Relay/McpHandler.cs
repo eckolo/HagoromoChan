@@ -197,7 +197,7 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         tools.Add(new
         {
             name = "complete_work_discovery",
-            description = "Return up to 25 authorized cloud Work choices for an explicit SSP discovery request. Include only verified Work conversation IDs and verified titles, never ordinary Chat; return an empty list when no authorized Work is available.",
+            description = "Return up to 25 authorized cloud Work choices for an explicit SSP discovery request. Include only verified case-sensitive opaque Work conversation IDs and independently verified titles, never ordinary Chat; return an empty list when no authorized Work is available.",
             inputSchema = new
             {
                 type = "object",

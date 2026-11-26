@@ -20,18 +20,14 @@ public sealed class WorkRetrieval(ChatStore store)
         lock (gate)
         {
             Expire();
-            var source = store.ListCloudSources().SingleOrDefault(s => s.Id == sourceId)
-                ?? throw new KeyNotFoundException();
-            if (source.Kind != "work")
-                throw new ValidationException("Only registered Work conversations can be retrieved.");
+            var conversation = store.WorkConversationId(sourceId);
             var existing = pending.Values.FirstOrDefault(p => p.Request.SourceId == sourceId && p.Status.State == "pending");
             if (existing is not null) return existing.Status;
             if (pending.Count >= 32)
                 throw new ValidationException("Too many recent retrieval requests. Try again later.");
             var id = Guid.NewGuid().ToString("D");
-            var conversation = new Uri(source.Url).AbsolutePath.TrimEnd('/').Split('/')[^1];
             var status = new WorkPullStatus(id, "pending");
-            pending.Add(id, new(new(id, source.Id, Guid.ParseExact(conversation, "D").ToString("D")),
+            pending.Add(id, new(new(id, sourceId, conversation),
                 DateTimeOffset.UtcNow + Lifetime, status));
             return status;
         }
@@ -60,8 +56,7 @@ public sealed class WorkRetrieval(ChatStore store)
             if (!pending.TryGetValue(operationId, out var item) || item.Request.Action != "discover")
                 throw new KeyNotFoundException();
             if (choices.Length > 25 || choices.Any(c => c is null ||
-                !Guid.TryParseExact(c.ConversationId, "D", out var id) || id == Guid.Empty ||
-                c.ConversationId != id.ToString("D") || string.IsNullOrWhiteSpace(c.Title) ||
+                !IsProviderId(c.ConversationId) || string.IsNullOrWhiteSpace(c.Title) ||
                 c.Title.Length > 200 || c.Title.Any(char.IsControl)) ||
                 choices.Select(c => c.ConversationId).Distinct(StringComparer.Ordinal).Count() != choices.Length)
                 throw new ValidationException("Invalid authorized Work choices.");
@@ -82,9 +77,7 @@ public sealed class WorkRetrieval(ChatStore store)
                 throw new KeyNotFoundException();
             var picked = choices.SingleOrDefault(c => c.ConversationId == conversationId)
                 ?? throw new KeyNotFoundException();
-            var existing = store.ListCloudSources().FirstOrDefault(source => source.Kind == "work" &&
-                new Uri(source.Url).AbsolutePath.TrimEnd('/').Split('/')[^1].Equals(picked.ConversationId, StringComparison.OrdinalIgnoreCase));
-            return existing ?? store.SaveCloudSource(new("work", $"https://chatgpt.com/c/{picked.ConversationId}", picked.Title));
+            return store.SaveDiscoveredWork(picked);
         }
     }
 
@@ -120,11 +113,11 @@ public sealed class WorkRetrieval(ChatStore store)
             CloudAnswer? answer = null;
             if (result.State == "available")
             {
-                if (!Guid.TryParseExact(result.MessageId, "D", out var message) || message == Guid.Empty ||
-                    string.IsNullOrWhiteSpace(result.Text))
+                if (!IsProviderId(result.MessageId) || string.IsNullOrWhiteSpace(result.Text))
                     throw new ValidationException("A message ID and complete body are required.");
                 // Stable per registered source and original answer, independent of the request/retry UUID.
-                var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"m05-work:{result.SourceId}:{message:D}"));
+                // Provider IDs are case-sensitive, opaque and restricted to unreserved URI characters.
+                var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"m05-work:{result.SourceId}:{result.MessageId}"));
                 var importId = new Guid(hash.AsSpan(0, 16)).ToString("D");
                 answer = store.ImportCloudAnswer(result.SourceId, importId, result.Text);
             }
@@ -136,6 +129,11 @@ public sealed class WorkRetrieval(ChatStore store)
             return status;
         }
     }
+
+    private static bool IsProviderId(string? value) =>
+        value is { Length: >= 1 and <= 200 } && value is not ("." or "..") &&
+        !string.Equals(value, Guid.Empty.ToString("D"), StringComparison.OrdinalIgnoreCase) &&
+        value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.' or '~');
 
     private void Expire()
     {

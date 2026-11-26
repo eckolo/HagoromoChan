@@ -7,6 +7,7 @@ namespace HagoromoChan.Relay;
 public sealed partial class ChatStore
 {
     private const int MaximumCloudSources = 250;
+    private const string WorkProviderPrefix = "chatgpt-work:";
 
     // Additive tables only: the Dot schema version, messages, cursor and subscriptions stay intact.
     private void InitializeCloudImports()
@@ -35,6 +36,32 @@ public sealed partial class ChatStore
         if (request.Kind is not ("chat" or "work"))
             throw new ValidationException("会話種別にChatまたはWorkを指定してください。");
         var (url, conversationId) = ValidateCloudUrl(request.Url);
+        return SaveCloudSourceCore(request.Kind, url, title, conversationId);
+    }
+
+    internal CloudSource SaveDiscoveredWork(WorkSourceCandidate candidate) =>
+        SaveCloudSourceCore("work", "", candidate.Title, WorkProviderPrefix + candidate.ConversationId);
+
+    internal string WorkConversationId(string sourceId)
+    {
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT kind, conversation_id FROM m05_sources WHERE id = $id";
+            command.Parameters.AddWithValue("$id", sourceId);
+            using var reader = command.ExecuteReader();
+            if (!reader.Read()) throw new KeyNotFoundException();
+            if (reader.GetString(0) != "work")
+                throw new ValidationException("Only registered Work conversations can be retrieved.");
+            var persisted = reader.GetString(1);
+            return persisted.StartsWith(WorkProviderPrefix, StringComparison.Ordinal)
+                ? persisted[WorkProviderPrefix.Length..] : persisted;
+        }
+    }
+
+    private CloudSource SaveCloudSourceCore(string kind, string url, string title, string conversationId)
+    {
         lock (gate)
         {
             ThrowIfDisposed();
@@ -42,7 +69,7 @@ public sealed partial class ChatStore
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = "SELECT id FROM m05_sources WHERE kind = $kind AND conversation_id = $conversation";
-            command.Parameters.AddWithValue("$kind", request.Kind);
+            command.Parameters.AddWithValue("$kind", kind);
             command.Parameters.AddWithValue("$conversation", conversationId);
             var existing = command.ExecuteScalar() as string;
             command.Parameters.Clear();
@@ -52,7 +79,7 @@ public sealed partial class ChatStore
                 if (Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) >= MaximumCloudSources)
                     throw new ValidationException("登録できる会話の上限に達しました。");
                 command.CommandText = "INSERT INTO m05_sources(id, kind, url, title, conversation_id) VALUES ($id, $kind, $url, $title, $conversation)";
-                command.Parameters.AddWithValue("$kind", request.Kind);
+                command.Parameters.AddWithValue("$kind", kind);
                 command.Parameters.AddWithValue("$conversation", conversationId);
             }
             else
@@ -69,7 +96,7 @@ public sealed partial class ChatStore
             command.Parameters.AddWithValue("$id", id);
             var latest = Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
             transaction.Commit();
-            return new CloudSource(id, request.Kind, url, title, latest);
+            return new CloudSource(id, kind, url, title, latest);
         }
     }
 

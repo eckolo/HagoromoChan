@@ -117,24 +117,31 @@ internal static class CloudImportChecks
             .ValueKind == JsonValueKind.Null, "No Work read before an explicit SSP request");
         var discovery = handler.WorkPull.Discover();
         Must(handler.WorkPull.Next() is { Action: "discover" }, "Only explicit SSP discovery is queued");
-        var found = Guid.NewGuid().ToString("D");
+        Must((await WorkTool("complete_work_discovery", new
+        {
+            operation_id = discovery.OperationId, choices = new[] { new { conversation_id = "work/A", title = "Invalid" } }
+        })).GetProperty("isError").GetBoolean(), "Path separators cannot enter provider IDs");
+        const string found = "work_Fixture_A";
+        const string sibling = "work_Fixture_a";
         Must(!(await WorkTool("complete_work_discovery", new
         {
-            operation_id = discovery.OperationId, choices = new[] { new { conversation_id = found, title = "Fixture Work" } }
+            operation_id = discovery.OperationId, choices = new[] { new { conversation_id = found, title = "Fixture Work" },
+                new { conversation_id = sibling, title = "Fixture Work" } }
         })).GetProperty("isError").GetBoolean(), "Verified Work choice accepted");
         Must(store.ListCloudSources().Length == fixtures.Length, "Discovery does not register before selection");
         Throws<KeyNotFoundException>(() => handler.WorkPull.SelectChoice(discovery.OperationId, Guid.NewGuid().ToString("D")));
         var selected = handler.WorkPull.SelectChoice(discovery.OperationId, found);
-        Must(selected.Kind == "work" && selected.Title == "Fixture Work" &&
+        Must(selected.Kind == "work" && selected.Title == "Fixture Work" && selected.Url == "" &&
+            handler.WorkPull.SelectChoice(discovery.OperationId, sibling).Id != selected.Id &&
             handler.WorkPull.SelectChoice(discovery.OperationId, found).Id == selected.Id,
             "Selection alone registers the authorized candidate idempotently");
-        var pull = handler.WorkPull.Start(work.Id);
-        Must(handler.WorkPull.Start(work.Id) == pull, "Coalesce another request while pending");
+        var pull = handler.WorkPull.Start(selected.Id);
+        Must(handler.WorkPull.Start(selected.Id) == pull, "Coalesce another request while pending");
         var queued = (await WorkTool(retrieve, new { })).GetProperty("structuredContent").GetProperty("pending");
-        var conversation = new Uri(work.Url).AbsolutePath.Split('/')[^1];
+        const string conversation = found;
         Must(queued.GetProperty("conversation_id").GetString() == conversation &&
             queued.GetProperty("operation_id").GetString() == pull.OperationId, "Reader gets exact registered Work identity");
-        var message = Guid.NewGuid().ToString("D");
+        var message = "msg_Fixture_A";
         const string exact = "  complete Work body\nsecond line  ";
         object Completion(string operation, string source, string conversationId, string text) => new
         {
@@ -143,24 +150,30 @@ internal static class CloudImportChecks
         };
         Must((await WorkTool(complete, Completion(pull.OperationId, chat.Id, conversation, exact)))
             .GetProperty("isError").GetBoolean(), "Wrong registered source rejected");
-        Must((await WorkTool(complete, Completion(pull.OperationId, work.Id, Guid.NewGuid().ToString("D"), exact)))
+        Must((await WorkTool(complete, Completion(pull.OperationId, selected.Id, Guid.NewGuid().ToString("D"), exact)))
             .GetProperty("isError").GetBoolean(), "Wrong conversation rejected");
-        Must(!(await WorkTool(complete, Completion(pull.OperationId, work.Id, conversation, exact)))
+        Must(!(await WorkTool(complete, Completion(pull.OperationId, selected.Id, conversation, exact)))
             .GetProperty("isError").GetBoolean(), "Exact completed answer accepted");
-        Must(!(await WorkTool(complete, Completion(pull.OperationId, work.Id, conversation, exact)))
+        Must(!(await WorkTool(complete, Completion(pull.OperationId, selected.Id, conversation, exact)))
             .GetProperty("isError").GetBoolean(), "Exact result replay accepted");
-        Must((await WorkTool(complete, Completion(pull.OperationId, work.Id, conversation, exact + "!")))
+        Must((await WorkTool(complete, Completion(pull.OperationId, selected.Id, conversation, exact + "!")))
             .GetProperty("isError").GetBoolean(), "Changed result rejected");
         Must(handler.WorkPull.Status(pull.OperationId).Answer?.Text == exact, "SSP receives exact original body");
-        var pullAgain = handler.WorkPull.Start(work.Id);
-        Must(!(await WorkTool(complete, Completion(pullAgain.OperationId, work.Id, conversation, exact)))
+        var pullAgain = handler.WorkPull.Start(selected.Id);
+        Must(!(await WorkTool(complete, Completion(pullAgain.OperationId, selected.Id, conversation, exact)))
             .GetProperty("isError").GetBoolean() &&
-            store.ReadCloudAnswers(work.Id).Answers.Count(a => a.Text == exact) == 1,
+            store.ReadCloudAnswers(selected.Id).Answers.Count(a => a.Text == exact) == 1,
             "Fetching the same original Work message twice leaves one persisted row");
-        var denied = handler.WorkPull.Start(work.Id);
+        var caseDistinct = handler.WorkPull.Start(selected.Id);
+        message = "msg_Fixture_a";
+        Must(!(await WorkTool(complete, Completion(caseDistinct.OperationId, selected.Id, conversation, exact)))
+            .GetProperty("isError").GetBoolean() &&
+            store.ReadCloudAnswers(selected.Id).Answers.Count(a => a.Text == exact) == 2,
+            "Same body is not an identifier: two opaque message IDs that differ only in case remain distinct");
+        var denied = handler.WorkPull.Start(selected.Id);
         Must(!(await WorkTool(complete, new
         {
-            operation_id = denied.OperationId, source_id = work.Id, conversation_id = conversation, state = "not_authorized"
+            operation_id = denied.OperationId, source_id = selected.Id, conversation_id = conversation, state = "not_authorized"
         })).GetProperty("isError").GetBoolean() &&
             handler.WorkPull.Status(denied.OperationId) is { State: "not_authorized", Answer: null },
             "Denied reads never create a body");
