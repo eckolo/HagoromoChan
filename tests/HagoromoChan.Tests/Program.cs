@@ -37,6 +37,7 @@ var tests = new (string Name, Action Run)[]
     ("M14 history activation and effective navigation clear only laid-out answer IDs", DesktopUiChecks.HistoryReadGestures),
     ("Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
     ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
+    ("M22 bubble chrome, device-pixel budgets and final-line page boundaries", ConversationUiChecks.BubbleBodyAndFinalLine),
     ("Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
     ("Conversation stack expands upward and contracts without dropping stored messages", ConversationUiChecks.StackNavigation),
     ("Conversation zone is independent of content and mascot never upscales", ConversationUiChecks.FixedZoneAndSourceSize),

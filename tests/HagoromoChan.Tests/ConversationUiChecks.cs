@@ -53,6 +53,42 @@ internal static class ConversationUiChecks
         Equal("", empty[0].Read(""));
     }
 
+    public static void BubbleBodyAndFinalLine()
+    {
+        foreach (var scale in new[] { 1.0, 1.25, 1.5, 1.75, 2.0 })
+        {
+            var width = BubbleLayout.RoundDown(301, scale);
+            var inset = BubbleLayout.RoundUp(BubbleLayout.TailDepth, scale);
+            var body = BubbleLayout.BodyWidth(width, scale);
+            True(body > 0 && body <= width - 2 * inset - 20 + 1e-8,
+                "The body fits after reserving both tail gutters and frame insets.");
+            var horizontalChrome = BubbleLayout.HistoryChrome(OverlaySide.Left, 6, scale);
+            Equal(horizontalChrome, BubbleLayout.HistoryChrome(OverlaySide.Right, 6, scale));
+            Equal(BubbleLayout.HistoryChrome(OverlaySide.Above, 6, scale),
+                BubbleLayout.HistoryChrome(OverlaySide.Below, 6, scale));
+            True(BubbleLayout.BodyWidth(30, scale) == 0, "No forced text width outside a tiny work area.");
+
+            foreach (var side in Enum.GetValues<OverlaySide>())
+            {
+                var chrome = BubbleLayout.HistoryChrome(side, 6, scale);
+                var lineHeight = 21.3;
+                double Measure(string s) => BubbleLayout.HistoryBodyHeight(
+                    (1 + s.Count(c => c == '\n')) * lineHeight, scale);
+                var exact = "一行目\r\n二行目\n三行目";
+                var available = Measure(exact) + chrome + 1e-8;
+                var budget = BubbleLayout.HistoryBodyBudget(available, chrome, scale);
+                True(Math.Abs(budget - Measure(exact)) < 1e-8, "Exact fit must use the full body.");
+                Equal(1, TextPaging.Split(exact, budget + 1e-8, Measure).Count);
+                var longText = exact + "\r\n最終行";
+                var pages = TextPaging.Split(longText, budget + 1e-8, Measure);
+                Equal(2, pages.Count);
+                True(pages.All(p => p.Height + chrome <= available), "No page may exceed the frame height.");
+                Equal(longText, string.Concat(pages.Select(p => p.Read(longText))));
+                Equal(new HistoryPosition(0, 1), HistoryNavigation.Newer(new(0, 0), 1, _ => pages.Count)!.Value);
+            }
+        }
+    }
+
     public static void StackNavigation()
     {
         int Count(int message) => message == 1 ? 3 : 1;
