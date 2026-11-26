@@ -77,6 +77,34 @@ internal static class CloudImportChecks
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
     }
 
+    public static void PreviewSeed()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hagoromo-m05-fixture-" + Guid.NewGuid().ToString("N"));
+        var db = Path.Combine(root, "conversations.db");
+        try
+        {
+            (CloudSource Source, CloudAnswer Answer)[] samples;
+            using (var store = new ChatStore(db))
+                samples = M05LocalPreview.Seed(store);
+            using (var store = new ChatStore(db))
+            {
+                Must(samples.Length == 2 && store.ListCloudSources().Length == 2, "Two preview sources");
+                Must(samples.Select(sample => sample.Source.Kind).ToHashSet().SetEquals(new[] { "chat", "work" }),
+                    "Both preview kinds");
+                foreach (var sample in samples)
+                {
+                    Must(store.ListCloudSources().Single(source => source.Id == sample.Source.Id).Title == sample.Source.Title,
+                        "Preview title survived restart");
+                    Must(store.ReadCloudAnswers(sample.Source.Id).Answers.Single() == sample.Answer,
+                        "Fixture answer stayed in its own source");
+                }
+                Must(store.ReadMessages().Messages.Count == 0 && store.GetStatus().QueuedCount == 0,
+                    "Preview data does not populate Dot or the outbox");
+            }
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
     private static void Must(bool value, string what)
     {
         if (!value) throw new InvalidOperationException(what);

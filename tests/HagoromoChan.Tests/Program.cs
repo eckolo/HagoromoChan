@@ -2,9 +2,16 @@ using HagoromoChan.Contracts;
 using HagoromoChan.Relay;
 using Microsoft.Data.Sqlite;
 
+if (args is ["--preview-m05"])
+{
+    Environment.ExitCode = await M05LocalPreview.RunAsync();
+    return;
+}
+
 var tests = new (string Name, Action Run)[]
 {
     ("M05 imports preserve Dot isolation, exact retries and source identity", CloudImportChecks.Run),
+    ("M05 preview fixtures persist separately without touching Dot", CloudImportChecks.PreviewSeed),
     ("Messages and channel binding persist across a restart", Persistence),
     ("Identical sends and replies are idempotent, conflicting retries fail", Idempotency),
     ("Invalid messages and reply destinations are rejected atomically", Validation),
