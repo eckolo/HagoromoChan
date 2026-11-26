@@ -11,7 +11,7 @@
 | M03 | 羽衣ちゃんの表示・ウィンドウの見た目の調整 | 最高 | 未確定（下記参照） | `milestone/M03-character-and-window-ui` | [M03](milestones/M03.md) |
 | M04 | Dotからの能動的な発言 | 高 | 未確定（下記参照） | `milestone/M04-dot-proactive-messages` | [M04](milestones/M04.md) |
 | M05 | 他会話の回答受信・会話管理基盤 | 高（Workのひな型を先行、Chat調査は独立） | M03・M04（完了）、M08の実行基盤 | `milestone/M05-other-conversations` | [M05](milestones/M05.md) |
-| M06 | 通信状態の管理・障害復旧 | 中 | M03 の基本 UI（完了）、詳細依存は設計時に確認 | `milestone/M06-connection-status` | [M06](milestones/M06.md) |
+| M06 | 通信状態の管理・障害復旧と購読窓の表示 | 中 | M03 の基本 UI（完了）、詳細依存は設計時に確認 | `milestone/M06-connection-status` | [M06](milestones/M06.md) |
 | MGMT-07 | デスクトップ追加機能のマイルストーン登録 | 管理基盤 | MGMT-02 | `milestone/MGMT-07-register-desktop-behaviors` | [MGMT-07](milestones/MGMT-07.md) |
 | M08 | 起動・終了管理とスタートアップによる自動起動 | 高 | M03 の基本 UI を先行（詳細依存は未確定） | `milestone/M08-startup` | [M08](milestones/M08.md) |
 | M09 | メッセージ・マウスイベントに応じた羽衣ちゃんのアクション | 中（早期並行着手候補） | M03（表示・操作） | `milestone/M09-character-reactions` | [M09](milestones/M09.md) |
@@ -39,6 +39,8 @@
 | M29 | 画像ファイルの送受信 | 優先度は着手時に確認 | M03、M04の送受信。追加連携は設計時に確認 | `milestone/M29-image-attachments` | [M29](milestones/M29.md) |
 
 | MGMT-30 | 継続指示の記録・再確認と動作確認の依頼ルール | 管理 | MGMT-25 | `milestone/MGMT-30-record-standing-verification-rules` | [MGMT-30](milestones/MGMT-30.md) |
+| MGMT-31 | 購読窓の表示調整と履歴ブックマークの登録 | 管理 | MGMT-30、M06 | `milestone/MGMT-31-register-status-and-bookmarks` | [MGMT-31](milestones/MGMT-31.md) |
+| M32 | 会話履歴のブックマークと呼び出し | 優先度は着手時に確認 | M03・M14、M26／M18との整合を確認 | `milestone/M32-history-bookmarks` | [M32](milestones/M32.md) |
 
 ## 着手順と依存
 
