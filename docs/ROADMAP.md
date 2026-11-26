@@ -43,9 +43,10 @@
 | M32 | 会話履歴のブックマークと呼び出し | 優先度は着手時に確認 | M03・M14、M26／M18との整合を確認 | `milestone/M32-history-bookmarks` | [M32](milestones/M32.md) |
 | M33 | 状況に応じたキャラクターアクションの選択 | 優先度は着手時に確認 | M21（再生・中断）、移動の統合にはM10 | `milestone/M33-contextual-action-selection` | [M33](milestones/M33.md) |
 | MGMT-34 | M21の範囲変更と状況に応じた動作選択の登録 | 管理 | M21、MGMT-31 | `milestone/MGMT-34-split-action-selection` | [MGMT-34](milestones/MGMT-34.md) |
-
 | M35 | 長文の会話窓の高さ調整と全文表示 | 優先度は着手時に確認 | M03・M22（既存UI・左右位置） | `milestone/M35-bubble-text-fit` | [M35](milestones/M35.md) |
 | MGMT-36 | 長文の会話窓の再発対応を登録 | 管理 | M22、MGMT-34 | `milestone/MGMT-36-register-bubble-text-fit` | [MGMT-36](milestones/MGMT-36.md) |
+| M37 | 羽衣ちゃんのイラストの髪の隙間の透過修正 | 優先度は着手時に確認 | M03の立ち絵、M09のアクション素材 | `milestone/M37-hair-gap-alpha` | [M37](milestones/M37.md) |
+| MGMT-38 | イラストの透過修正を登録 | 管理 | MGMT-36 | `milestone/MGMT-38-register-hair-gap-alpha` | [MGMT-38](milestones/MGMT-38.md) |
 
 ## 着手順と依存
 
