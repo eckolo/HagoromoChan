@@ -34,6 +34,7 @@ var tests = new (string Name, Action Run)[]
     ("Nearby cursors hold the gaze across distance and DPI boundaries", CursorGazeTests.Proximity),
     ("Panel input immediately redirects the gaze and repeated interaction extends it", CursorGazeTests.PanelActivity),
     ("Desktop overlay placement and work-area bounds", DesktopUiChecks.Placement),
+    ("M14 history activation and effective navigation clear only laid-out answer IDs", DesktopUiChecks.HistoryReadGestures),
     ("Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
     ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
     ("Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
