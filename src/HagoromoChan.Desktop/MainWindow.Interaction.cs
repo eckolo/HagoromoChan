@@ -16,23 +16,28 @@ namespace HagoromoChan.Desktop;
 
 public partial class MainWindow : Window
 {
+    private bool _farewellAfterMenu;
+    private bool ConversationVisible => _panels.ConversationOpen && _panels.Conversation.IsVisible;
+
     private void WireDesktopEvents()
     {
         _placementTimer.Tick += (_, _) => CheckPlacement();
-        MascotImage.PreviewMouseLeftButtonDown += BeginPointer;
-        MascotImage.PreviewMouseMove += MovePointer;
-        MascotImage.PreviewMouseLeftButtonUp += EndPointer;
-        MascotImage.LostMouseCapture += (_, _) =>
+        WirePanelCursorGaze();
+        MascotSurface.PreviewMouseLeftButtonDown += BeginPointer;
+        MascotSurface.PreviewMouseMove += MovePointer;
+        MascotSurface.PreviewMouseLeftButtonUp += EndPointer;
+        MascotSurface.LostMouseCapture += (_, _) =>
         {
             if (!_pointerDown)
                 return;
             var moved = _dragging;
             _pointerDown = false;
             _dragging = false;
+            RefreshReactionSuspension();
             if (moved)
                 RememberPosition();
         };
-        MascotImage.PreviewMouseRightButtonUp += (_, e) =>
+        MascotSurface.PreviewMouseRightButtonUp += (_, e) =>
         {
             e.Handled = true;
             OpenSettings();
@@ -45,8 +50,9 @@ public partial class MainWindow : Window
             return;
         _dragStart = NativeDesktop.Cursor();
         _dragAnchor = NativeDesktop.Bounds(this);
-        _pointerDown = Mouse.Capture(MascotImage);
+        _pointerDown = Mouse.Capture(MascotSurface);
         _dragging = false;
+        RefreshReactionSuspension(closingClick: _pointerDown && ConversationVisible);
         e.Handled = true;
     }
 
@@ -64,6 +70,7 @@ public partial class MainWindow : Window
                 && Math.Abs(dy) < SystemParameters.MinimumVerticalDragDistance * scale)
                 return;
             _dragging = true;
+            RefreshReactionSuspension();
         }
 
         var size = NativeDesktop.Bounds(this);
@@ -80,11 +87,12 @@ public partial class MainWindow : Window
         if (!_pointerDown)
             return;
         var moved = _dragging;
-        var clicked = !moved && MascotImage.IsMouseOver;
+        var clicked = !moved && MascotSurface.IsMouseOver;
         _pointerDown = false;
         _dragging = false;
-        if (Mouse.Captured == MascotImage)
+        if (Mouse.Captured == MascotSurface)
             Mouse.Capture(null);
+        RefreshReactionSuspension(closingClick: clicked && ConversationVisible);
         e.Handled = true;
         if (moved)
             RememberPosition();
@@ -138,6 +146,11 @@ public partial class MainWindow : Window
             _lastBounds = current;
             _lastArea = area;
             _lastScale = scale;
+            _reactionArtwork.SetDisplayScale(Math.Min((double)current.Width / _assetPixelWidth,
+                (double)current.Height / _assetPixelHeight));
+            RestingSilhouette.Source = _reactionArtwork.RestingImage;
+            if (!_reactionTimer.IsEnabled)
+                MascotImage.Source = RestingSilhouette.Source;
             _panels.Arrange();
         }
     }
@@ -166,6 +179,24 @@ public partial class MainWindow : Window
         RefreshStatus();
     }
 
+    private void ChangeConversationByUser(Action change, bool waveOnOpen = false)
+    {
+        var wasVisible = ConversationVisible;
+        change();
+        var visible = ConversationVisible;
+        if (wasVisible == visible || _closing || _exitRequested || _controlRequest) return;
+
+        if (!visible && _contextMenu is { IsOpen: true })
+        {
+            // A menu item can run before Closed releases the reaction suspension.
+            _farewellAfterMenu = true;
+            return;
+        }
+
+        _farewellAfterMenu = false;
+        _reactions.ConversationChanged(wasVisible, visible, Environment.TickCount64, waveOnOpen);
+    }
+
     private void DismissSurfaces()
     {
         if (!_initialized || _closing)
@@ -174,7 +205,7 @@ public partial class MainWindow : Window
         _expandedStatus = false;
         if (_contextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
-        _panels.HideSurfaces();
+        ChangeConversationByUser(_panels.HideSurfaces);
     }
 
     private bool PrepareConversation()
@@ -188,28 +219,28 @@ public partial class MainWindow : Window
     private void OpenBoth()
     {
         if (!PrepareConversation()) return;
-        _panels.OpenBoth();
+        ChangeConversationByUser(_panels.OpenBoth, waveOnOpen: true);
         RefreshStatus();
     }
 
     private void OpenComposer()
     {
         if (!PrepareConversation()) return;
-        _panels.FocusInput();
+        ChangeConversationByUser(_panels.FocusInput);
         RefreshStatus();
     }
 
     private void ToggleComposer()
     {
         if (!PrepareConversation()) return;
-        _panels.ToggleInput();
+        ChangeConversationByUser(_panels.ToggleInput);
         RefreshStatus();
     }
 
     private void ToggleHistory()
     {
         if (!PrepareConversation()) return;
-        _panels.ToggleHistory();
+        ChangeConversationByUser(_panels.ToggleHistory);
         RefreshStatus();
     }
 
@@ -219,7 +250,7 @@ public partial class MainWindow : Window
             return;
         var menu = new ContextMenu
         {
-            PlacementTarget = MascotImage,
+            PlacementTarget = MascotSurface,
             Placement = PlacementMode.MousePoint,
             StaysOpen = false
         };
@@ -248,6 +279,17 @@ public partial class MainWindow : Window
             SavePreferences();
         };
         menu.Items.Add(top);
+        var motion = new MenuItem { Header = "キャラクターの動き" };
+        var systemState = SystemParameters.ClientAreaAnimation ? "オン" : "オフ";
+        var enabled = _preferences.ReactionsEnabled;
+        var follow = _preferences.FollowWindowsAnimations;
+        motion.Items.Add(ToggleMenuCommand($"Windowsに合わせる（現在は{systemState}）", enabled && follow,
+            () => SetReactionPreference(enabled: true, followWindows: true)));
+        motion.Items.Add(ToggleMenuCommand("常に動かす", enabled && !follow,
+            () => SetReactionPreference(enabled: true, followWindows: false)));
+        motion.Items.Add(ToggleMenuCommand("動かさない", !enabled,
+            () => SetReactionPreference(enabled: false, followWindows: true)));
+        menu.Items.Add(motion);
         var size = new MenuItem { Header = "表示サイズ" };
         foreach (var (label, height) in new[] { ("小（120）", 120), ("中（180）", 180), ("大・標準（260）", 260) })
         {
@@ -274,8 +316,24 @@ public partial class MainWindow : Window
         menu.Closed += (_, _) =>
         {
             _contextMenu = null;
+            RefreshReactionSuspension();
+            if (_farewellAfterMenu)
+            {
+                _farewellAfterMenu = false;
+                if (!_closing && !_exitRequested && !_controlRequest)
+                    _reactions.ConversationChanged(true, ConversationVisible, Environment.TickCount64);
+            }
         };
         menu.IsOpen = true;
+        RefreshReactionSuspension();
+    }
+
+    private void SetReactionPreference(bool enabled, bool followWindows)
+    {
+        _preferences.ReactionsEnabled = enabled;
+        _preferences.FollowWindowsAnimations = followWindows;
+        ApplyReactionSettings();
+        SavePreferences();
     }
 
     private static MenuItem ToggleMenuCommand(string label, bool open, Action action)

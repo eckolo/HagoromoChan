@@ -231,6 +231,34 @@ internal sealed class DesktopPanels
 
     public bool Wants(Window window) => _requested.Contains(window);
 
+    public (double X, double Y) UnreadDirection(ScreenRect mascot)
+    {
+        // Only retained, currently displayed cards are candidates. The transparent history
+        // window spans most of the work area, so its centre is not the bubble's position.
+        FrameworkElement? target = null;
+        if (Conversation.IsVisible && HistoryOpen)
+        {
+            foreach (var key in _renderedKeys)
+                if (key.Unread && _unread.Contains(key.Id) && _cards.TryGetValue(key, out var card)
+                    && card.IsVisible && card.IsArrangeValid)
+                {
+                    target = card;
+                    break;
+                }
+        }
+        if (target is null && Status.IsVisible && UnreadButton.IsVisible && UnreadButton.IsArrangeValid)
+            target = UnreadButton;
+        if (target is null || target.ActualWidth <= 0 || target.ActualHeight <= 0
+            || PresentationSource.FromVisual(target) is null)
+            return default;
+
+        var point = target.PointToScreen(new Point(target.ActualWidth * .5, target.ActualHeight * .5));
+        var dx = point.X - (mascot.X + mascot.Width * .5);
+        var dy = point.Y - (mascot.Y + mascot.Height * .25);
+        var length = double.Hypot(dx, dy);
+        return length >= 1 ? (dx / length, dy / length) : default;
+    }
+
     public void SetVisible(Window window, bool visible)
     {
         if (_closing) return;
