@@ -876,7 +876,7 @@ internal sealed class DesktopPanels
             if (Wants(Status))
             {
                 var statusWidth = OverlayLayout.StatusWidth(area, anchor);
-                _statusContent.Measure(new Size(Math.Max(1, statusWidth / scale - 18), double.PositiveInfinity));
+                _statusContent.Measure(new Size(Math.Max(1, statusWidth / ownerScale - 18), double.PositiveInfinity));
                 var statusHeight = Math.Min(area.Height, Px(Math.Max(46, _statusContent.DesiredSize.Height + 18)));
                 // Do not cover an open conversation to fit status. The context menu
                 // still exposes full diagnostics when a nearby slot is unavailable.
