@@ -256,6 +256,19 @@ internal static class CharacterReactionTests
         gaze.ObserveCursor(null);
         Check(gaze.Sample(1690).Pose == ReactionPose.Idle, "unqualified gaze does not restart");
 
+        foreach (var target in new (double X, double Y)[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+        {
+            var thinking = new CharacterReactionState();
+            thinking.SendAccepted("pending", 0);
+            Check(thinking.Sample(800).Pose == ReactionPose.Thinking, "start in thinking before a direct cursor target");
+            thinking.ObserveCursor(target);
+            Check(thinking.Sample(810) is { Pose: ReactionPose.Look, DirectGaze: true, GazeX: 0, GazeY: 0 },
+                "a direct target during reply wait must not inherit an upward first frame");
+            var moving = thinking.Sample(900);
+            Check(moving.GazeX == target.X / 2 && moving.GazeY == target.Y / 2,
+                "the first movement must be toward the actual cursor, not toward the thinking pose");
+        }
+
         var muted = new CharacterReactionState();
         muted.SetEnabled(false, 0);
         muted.SendAccepted("mute", 10);

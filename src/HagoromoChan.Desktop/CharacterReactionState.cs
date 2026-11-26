@@ -376,7 +376,10 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     {
         var t = Math.Clamp((double)elapsed / GazeIntroMs, 0, 1);
         var (x, y) = _lastLookTarget;
-        return (x * t, y * t + (WaitingForReply ? -1 : 0) * (1 - t));
+        // Direct cursor tracking starts at neutral, even while waiting for a reply.
+        // Only a passive window glance inherits the upward thinking direction.
+        var fromY = !_lastLookDirect && WaitingForReply ? -1 : 0;
+        return (x * t, y * t + fromY * (1 - t));
     }
 
     private static (double, double) WaitingDirection(long elapsed)
