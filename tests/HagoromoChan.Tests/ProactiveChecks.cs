@@ -120,7 +120,7 @@ internal static class ProactiveChecks
 
         var tools = (await Call("tools/list", new { })).GetProperty("result").GetProperty("tools")
             .EnumerateArray().ToDictionary(t => t.GetProperty("name").GetString()!);
-        Equal(3, tools.Count);
+        Equal(4, tools.Count);
         True(tools.ContainsKey("reply") && tools.ContainsKey("get_context"), "Keep existing tools.");
         var tool = tools["send_message"];
         True(!tool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean(), "Send is a write action.");

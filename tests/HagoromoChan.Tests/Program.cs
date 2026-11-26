@@ -12,6 +12,7 @@ var tests = new (string Name, Action Run)[]
 {
     ("M05 imports preserve Dot isolation, exact retries and source identity", CloudImportChecks.Run),
     ("M05 preview fixtures persist separately without touching Dot", CloudImportChecks.PreviewSeed),
+    ("M05 default MCP advertises scoped import and preserves the legacy tools", CloudImportChecks.DefaultMcp),
     ("Messages and channel binding persist across a restart", Persistence),
     ("Identical sends and replies are idempotent, conflicting retries fail", Idempotency),
     ("Invalid messages and reply destinations are rejected atomically", Validation),

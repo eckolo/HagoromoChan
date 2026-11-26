@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HagoromoChan.Contracts;
 using HagoromoChan.Relay;
 using HagoromoChan.Desktop;
@@ -75,6 +76,51 @@ internal static class CloudImportChecks
             }
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    public static void DefaultMcp() => DefaultMcpAsync().GetAwaiter().GetResult();
+
+    private static async Task DefaultMcpAsync()
+    {
+        using var store = new ChatStore(":memory:");
+        using var webhooks = new WebhookClient();
+        var handler = new McpHandler(store, webhooks);
+        var fixtures = M05LocalPreview.Seed(store);
+        var waiting = store.AddUserMessage(new SendMessageRequest(Guid.NewGuid().ToString("D"), "pending", null));
+
+        async Task<JsonElement> Call(string method, object parameters)
+        {
+            var request = JsonSerializer.SerializeToElement(new { jsonrpc = "2.0", id = 1, method, @params = parameters });
+            return JsonSerializer.SerializeToElement(await handler.HandleAsync(request, CancellationToken.None));
+        }
+
+        var names = (await Call("tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray()
+            .Select(tool => tool.GetProperty("name").GetString()).ToHashSet();
+        Must(names.SetEquals(new[] { "get_context", "reply", "send_message", "import_cloud_answer" }),
+            "Normal MCP advertises the new tool without dropping a legacy tool");
+
+        async Task<JsonElement> Import(string source, string id, string body) =>
+            (await Call("tools/call", new
+            {
+                name = "import_cloud_answer", arguments = new { source_id = source, import_id = id, text = body }
+            })).GetProperty("result");
+
+        var chat = fixtures.Single(item => item.Source.Kind == "chat").Source;
+        var work = fixtures.Single(item => item.Source.Kind == "work").Source;
+        foreach (var source in new[] { chat, work })
+        {
+            var id = Guid.NewGuid().ToString("D");
+            var body = $"selected answer from {source.Kind}";
+            Must(!(await Import(source.Id, id, body)).GetProperty("isError").GetBoolean(), "Explicit import accepted");
+            Must(!(await Import(source.Id, id, body)).GetProperty("isError").GetBoolean(), "Identical retry accepted");
+            Must((await Import(source.Id, id, body + "!")).GetProperty("isError").GetBoolean(), "Conflicting retry rejected");
+            Must(store.ReadCloudAnswers(source.Id).Answers.Count(a => a.Text == body) == 1,
+                "Exactly one imported row in its registered source");
+        }
+        Must((await Import(Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), "unregistered"))
+            .GetProperty("isError").GetBoolean(), "Unknown registrations rejected");
+        Must(store.ReadMessages().Messages.Single() == waiting && store.GetStatus().QueuedCount == 1,
+            "Tool uses a separate history without settling or enqueueing a Dot message");
     }
 
     public static void PreviewSeed()

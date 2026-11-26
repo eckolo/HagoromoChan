@@ -11,9 +11,6 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
     public const string SupportedChannel = "hagoromo-mini";
     private const string LatestProtocol = "2025-11-25";
     private static readonly TimeSpan SubscriptionLifetime = TimeSpan.FromDays(7);
-    // Explicitly opt in before exposing the new write tool to an installed connector.
-    private readonly bool CloudImportsEnabled =
-        Environment.GetEnvironmentVariable("HAGOROMO_ENABLE_M05_IMPORT") == "1";
     private readonly SemaphoreSlim subscriptionGate = new(1, 1);
 
     public async Task<object?> HandleAsync(JsonElement request, CancellationToken cancellationToken)
@@ -85,7 +82,8 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
                 "Use reply with the matching request_id to deliver the final answer to the app. " +
                 "For a standalone message with no desktop request, use send_message only within the owner's authorized task and plugin permissions. " +
                 "Never use it instead of reply for a request, and retry with the same message_id and exact text. " +
-                "The app receives only text explicitly submitted through reply or send_message."
+                "For an explicitly selected answer from a registered cloud Chat or Work, use import_cloud_answer. " +
+                "Do not import automatically or treat an imported answer as a Dot reply."
         };
     }
 
@@ -148,37 +146,34 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
                     annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
                 }
         };
-        if (CloudImportsEnabled)
+        tools.Add(new
         {
-            tools.Add(new
+            name = "import_cloud_answer",
+            description = "Store one answer explicitly selected by the owner in its originating cloud Chat or Work. " +
+                "Use the source_id issued by this app when the same conversation was registered. " +
+                "Use a new UUID for each intentional forwarding, and reuse its ID, source and exact text on retry. " +
+                "Do not use as spontaneous forwarding or as a Dot reply. This does not read or send to ChatGPT.",
+            inputSchema = new
             {
-                name = "import_cloud_answer",
-                description = "Store one answer explicitly selected by the owner in its originating cloud Chat or Work. " +
-                    "Use the source_id issued by this app when the same conversation was registered. " +
-                    "Use a new UUID for each intentional forwarding, and reuse its ID, source and exact text on retry. " +
-                    "Do not use as spontaneous forwarding or as a Dot reply. This does not read or send to ChatGPT.",
-                inputSchema = new
+                type = "object",
+                properties = new
                 {
-                    type = "object",
-                    properties = new
-                    {
-                        source_id = new { type = "string", description = "Registration ID supplied by the owner for the originating conversation." },
-                        import_id = new { type = "string", description = "Unique UUID in D format for this forwarding." },
-                        text = new { type = "string", minLength = 1, maxLength = 32768, description = "The selected answer, verbatim." }
-                    },
-                    required = new[] { "source_id", "import_id", "text" },
-                    additionalProperties = false
+                    source_id = new { type = "string", description = "Registration ID supplied by the owner for the originating conversation." },
+                    import_id = new { type = "string", description = "Unique UUID in D format for this forwarding." },
+                    text = new { type = "string", minLength = 1, maxLength = 32768, description = "The selected answer, verbatim." }
                 },
-                annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
-            });
-        }
+                required = new[] { "source_id", "import_id", "text" },
+                additionalProperties = false
+            },
+            annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
+        });
         return new { tools };
     }
 
     private object CallTool(JsonElement parameters)
     {
         var name = RequiredString(parameters, "name");
-        if (name == "import_cloud_answer" && CloudImportsEnabled)
+        if (name == "import_cloud_answer")
             return ImportCloudAnswer(RequiredObject(parameters, "arguments"));
         if (name is not ("get_context" or "reply" or "send_message"))
             throw InvalidParams("Unknown tool.");

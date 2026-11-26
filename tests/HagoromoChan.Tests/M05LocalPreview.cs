@@ -106,7 +106,7 @@ internal static class M05LocalPreview
         {
             start.Environment["HAGOROMO_DATA_DIR"] = data;
             foreach (var key in new[] { RuntimeControl.SessionVariable, RuntimeControl.StopVariable, RuntimeControl.PipeVariable,
-                "HAGOROMO_ENABLE_M05_IMPORT", "CONTROL_PLANE_API_KEY", "OPENAI_API_KEY" })
+                "CONTROL_PLANE_API_KEY", "OPENAI_API_KEY" })
                 start.Environment.Remove(key);
         }
         return Process.Start(start) ?? throw new InvalidOperationException($"試験プロセスを起動できません: {Path.GetFileName(file)}");
