@@ -226,6 +226,14 @@ public partial class MainWindow : Window
         _contextMenu = menu;
         menu.Items.Add(ToggleMenuCommand("話しかける", _panels.ComposerOpen, ToggleComposer));
         menu.Items.Add(ToggleMenuCommand("会話履歴", _panels.HistoryOpen, ToggleHistory));
+        menu.Items.Add(MenuCommand("取り込んだクラウド回答", () =>
+        {
+            var existing = OwnedWindows.OfType<CloudImportsWindow>().FirstOrDefault();
+            if (existing is not null)
+                existing.Activate();
+            else
+                new CloudImportsWindow(_relay, _lifetime.Token) { Owner = this }.Show();
+        }));
         // On very small work areas a status surface may have no safe nearby slot.
         // Keep its existing diagnostic and retry actions reachable without moving it away.
         if (_panels.StatusNeedsAlternateAccess)

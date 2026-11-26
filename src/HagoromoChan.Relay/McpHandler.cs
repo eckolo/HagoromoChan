@@ -11,6 +11,9 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
     public const string SupportedChannel = "hagoromo-mini";
     private const string LatestProtocol = "2025-11-25";
     private static readonly TimeSpan SubscriptionLifetime = TimeSpan.FromDays(7);
+    // Explicitly opt in before exposing the new write tool to an installed connector.
+    private readonly bool CloudImportsEnabled =
+        Environment.GetEnvironmentVariable("HAGOROMO_ENABLE_M05_IMPORT") == "1";
     private readonly SemaphoreSlim subscriptionGate = new(1, 1);
 
     public async Task<object?> HandleAsync(JsonElement request, CancellationToken cancellationToken)
@@ -89,10 +92,8 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
     private object ListTools(JsonElement parameters)
     {
         ValidateCursor(parameters);
-        return new
+        var tools = new List<object>
         {
-            tools = new object[]
-            {
                 new
                 {
                     name = "get_context",
@@ -146,13 +147,39 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
                     },
                     annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
                 }
-            }
         };
+        if (CloudImportsEnabled)
+        {
+            tools.Add(new
+            {
+                name = "import_cloud_answer",
+                description = "Store one answer explicitly selected by the owner in its originating cloud Chat or Work. " +
+                    "Use the source_id issued by this app when the same conversation was registered. " +
+                    "Use a new UUID for each intentional forwarding, and reuse its ID, source and exact text on retry. " +
+                    "Do not use as spontaneous forwarding or as a Dot reply. This does not read or send to ChatGPT.",
+                inputSchema = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        source_id = new { type = "string", description = "Registration ID supplied by the owner for the originating conversation." },
+                        import_id = new { type = "string", description = "Unique UUID in D format for this forwarding." },
+                        text = new { type = "string", minLength = 1, maxLength = 32768, description = "The selected answer, verbatim." }
+                    },
+                    required = new[] { "source_id", "import_id", "text" },
+                    additionalProperties = false
+                },
+                annotations = new { readOnlyHint = false, destructiveHint = false, idempotentHint = true, openWorldHint = false }
+            });
+        }
+        return new { tools };
     }
 
     private object CallTool(JsonElement parameters)
     {
         var name = RequiredString(parameters, "name");
+        if (name == "import_cloud_answer" && CloudImportsEnabled)
+            return ImportCloudAnswer(RequiredObject(parameters, "arguments"));
         if (name is not ("get_context" or "reply" or "send_message"))
             throw InvalidParams("Unknown tool.");
         var arguments = RequiredObject(parameters, "arguments");
@@ -188,6 +215,20 @@ public sealed class McpHandler(ChatStore store, WebhookClient webhooks)
         {
             return ToolError("a_different_final_reply_already_exists");
         }
+    }
+
+    private object ImportCloudAnswer(JsonElement arguments)
+    {
+        ValidateProperties(arguments, ["source_id", "import_id", "text"]);
+        try
+        {
+            var answer = store.ImportCloudAnswer(RequiredString(arguments, "source_id"),
+                RequiredString(arguments, "import_id"), RequiredString(arguments, "text"));
+            return ToolResult(new { source_id = answer.SourceId, import_id = answer.ImportId, stored = true });
+        }
+        catch (ValidationException) { return ToolError("invalid_cloud_answer"); }
+        catch (ConflictException) { return ToolError("different_import_already_exists"); }
+        catch (KeyNotFoundException) { return ToolError("source_not_registered"); }
     }
 
     private object SendStandaloneMessage(JsonElement arguments)

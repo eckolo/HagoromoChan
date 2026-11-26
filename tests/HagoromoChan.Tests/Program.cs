@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("M05 imports preserve Dot isolation, exact retries and source identity", CloudImportChecks.Run),
     ("Messages and channel binding persist across a restart", Persistence),
     ("Identical sends and replies are idempotent, conflicting retries fail", Idempotency),
     ("Invalid messages and reply destinations are rejected atomically", Validation),

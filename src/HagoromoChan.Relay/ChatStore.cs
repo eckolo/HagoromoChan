@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace HagoromoChan.Relay;
 
-public sealed class ChatStore : IDisposable
+public sealed partial class ChatStore : IDisposable
 {
     private const int MaximumTextLength = 32768;
     private const int MaximumPageSize = 100;
@@ -42,6 +42,7 @@ public sealed class ChatStore : IDisposable
             pragmas.CommandText = "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;";
             pragmas.ExecuteNonQuery();
             InitializeSchema();
+            InitializeCloudImports();
         }
         catch
         {

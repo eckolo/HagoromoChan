@@ -38,7 +38,17 @@ internal sealed class RelayClient : IDisposable
     public Task<RelayStatus> RetryDeliveryAsync(CancellationToken cancellationToken) =>
         SendAsync<RelayStatus>(HttpMethod.Post, "/api/retry", null, cancellationToken);
 
-    private async Task<T> SendAsync<T>(HttpMethod method, string path, SendMessageRequest? message,
+    public Task<CloudSource[]> GetCloudSourcesAsync(CancellationToken cancellationToken) =>
+        SendAsync<CloudSource[]>(HttpMethod.Get, "/api/m05/sources", null, cancellationToken);
+
+    public Task<CloudSource> SaveCloudSourceAsync(SaveCloudSourceRequest source, CancellationToken cancellationToken) =>
+        SendAsync<CloudSource>(HttpMethod.Post, "/api/m05/sources", source, cancellationToken);
+
+    public Task<CloudAnswerPage> ReadCloudAnswersAsync(string sourceId, long cursor, CancellationToken cancellationToken) =>
+        SendAsync<CloudAnswerPage>(HttpMethod.Get,
+            $"/api/m05/sources/{Uri.EscapeDataString(sourceId)}/answers?after={cursor}&limit=20", null, cancellationToken);
+
+    private async Task<T> SendAsync<T>(HttpMethod method, string path, object? message,
         CancellationToken cancellationToken)
     {
         var token = (await File.ReadAllTextAsync(_tokenPath, cancellationToken).ConfigureAwait(false)).Trim();

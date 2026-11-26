@@ -111,6 +111,12 @@ app.MapPost("/api/retry", (ChatStore store) =>
     return store.GetStatus();
 });
 
+app.MapGet("/api/m05/sources", (ChatStore store) => store.ListCloudSources());
+app.MapPost("/api/m05/sources", (SaveCloudSourceRequest request, ChatStore store) =>
+    store.SaveCloudSource(request));
+app.MapGet("/api/m05/sources/{sourceId}/answers", (string sourceId, long? after, int? limit, ChatStore store) =>
+    store.ReadCloudAnswers(sourceId, after ?? 0, limit ?? 50));
+
 app.MapPost("/mcp", async (HttpRequest request, McpHandler handler, CancellationToken cancellationToken) =>
 {
     if (!request.HasJsonContentType())
