@@ -66,11 +66,12 @@ internal sealed class DesktopPanels
     private int _anchorOffset;
     private double _historyWidth;
     private double _historyMaximum;
+    private double _historyScale;
     private OverlaySide _side = OverlaySide.Right;
     private readonly List<HistoryCardKey> _renderedKeys = [];
     private readonly Dictionary<HistoryCardKey, (DockPanel Card, Button Read)> _cards = [];
     private readonly record struct HistoryCardKey(string Id, int Start, int Length, double Height,
-        int Page, int PageCount, double Width, OverlaySide Side);
+        int Page, int PageCount, double Width, double Scale, OverlaySide Side);
     private DockPanel? _composerBubble;
 
     public Window Conversation { get; }
@@ -486,7 +487,7 @@ internal sealed class DesktopPanels
     {
         var message = _history[index];
         if (_historyPages.TryGetValue(message.Id, out var pages)) return pages;
-        pages = TextPaging.Split(message.Text, _historyMaximum, text => MeasureText(text, _historyWidth));
+        pages = TextPaging.Split(message.Text, _historyMaximum, text => MeasureHistoryText(text, _historyWidth, _historyScale));
         _historyPages[message.Id] = pages;
         return pages;
     }
@@ -567,14 +568,12 @@ internal sealed class DesktopPanels
         _cards.Clear();
     }
 
-    private void RenderHistory(double width, double available, OverlaySide side)
+    private void RenderHistory(double bodyWidth, double available, OverlaySide side, double scale)
     {
-        var vertical = side is OverlaySide.Above or OverlaySide.Below;
-        var chrome = vertical ? 74.0 : 62.0; // header, border/padding, tail, card gap
-        var bodyWidth = Math.Max(36, width - 42);
-        var minimum = Math.Max(44, MeasureText("あ😀", bodyWidth));
-        var maximum = Math.Floor(available - chrome);
-        if (!HistoryOpen || maximum < minimum || _history.Length == 0)
+        var chrome = BubbleLayout.HistoryChrome(side, Gap, scale);
+        var maximum = BubbleLayout.HistoryBodyBudget(available, chrome, scale);
+        if (!HistoryOpen || _history.Length == 0 || bodyWidth < BubbleLayout.MinimumBodyWidth
+            || maximum < Math.Max(44, MeasureHistoryText("あ😀", bodyWidth, scale)))
         {
             ClearHistory();
             _historyMaximum = 0;
@@ -585,11 +584,12 @@ internal sealed class DesktopPanels
         }
 
         _historyUnavailable.Visibility = Visibility.Collapsed;
-        if (_historyWidth != bodyWidth || _historyMaximum != maximum)
+        if (_historyWidth != bodyWidth || _historyMaximum != maximum || _historyScale != scale)
         {
             _historyPages.Clear();
             _historyWidth = bodyWidth;
             _historyMaximum = maximum;
+            _historyScale = scale;
         }
         var pos = Position();
         if (pos is not { } first) return;
@@ -603,7 +603,7 @@ internal sealed class DesktopPanels
             var pages = Pages(position.Message);
             var page = pages[position.Page];
             return (Position: position, Key: new HistoryCardKey(message.Id, page.Start, page.Length,
-                page.Height, position.Page, pages.Count, width, side));
+                page.Height, position.Page, pages.Count, bodyWidth, scale, side));
         }).ToArray();
         var keys = desired.Select(item => item.Key).ToArray();
         var positions = desired.ToDictionary(item => item.Key, item => item.Position);
@@ -642,7 +642,7 @@ internal sealed class DesktopPanels
                 : "お知らせ";
             var title = $"{role}　{message.CreatedAt.LocalDateTime:M/d HH:mm}";
             if (pages.Count > 1) title += $"　{p.Page + 1}/{pages.Count}";
-            var header = new DockPanel { Height = 27, Margin = new Thickness(0, 0, 0, 3) };
+            var header = new DockPanel { Height = BubbleLayout.HistoryHeader, Margin = new Thickness(0, 0, 0, BubbleLayout.HistoryHeaderGap) };
             var copy = SymbolButton("⧉", "この発言の全文をコピー", () => Copy(message.Text));
             DockPanel.SetDock(copy, Dock.Right);
             header.Children.Add(copy);
@@ -660,7 +660,9 @@ internal sealed class DesktopPanels
             body.IsReadOnly = true;
             body.Text = slice.Read(message.Text);
             body.Width = bodyWidth;
+            body.MaxWidth = bodyWidth;
             body.Height = slice.Height;
+            body.ClipToBounds = true;
             var content = new StackPanel();
             content.Children.Add(header);
             content.Children.Add(body);
@@ -682,6 +684,9 @@ internal sealed class DesktopPanels
         // extra allowance covers line/caret and pixel rounding differences.
         return Math.Ceiling(Math.Max(_probe.DesiredSize.Height, _probeBlock.DesiredSize.Height)) + 8;
     }
+
+    private double MeasureHistoryText(string text, double width, double scale) =>
+        BubbleLayout.HistoryBodyHeight(MeasureText(text, width), scale);
 
     public void RequestArrange()
     {
@@ -711,7 +716,7 @@ internal sealed class DesktopPanels
                 _side = zone.Side;
                 var width = zone.Bounds.Width / scale;
                 var maxHeight = zone.Bounds.Height / scale;
-                var bodyWidth = Math.Max(36, width - 42);
+                var bodyWidth = BubbleLayout.BodyWidth(width, scale);
                 var vertical = _side is OverlaySide.Above or OverlaySide.Below;
                 var composerChrome = vertical ? 84.0 : 72.0;
                 var composerHeight = 0.0;
@@ -720,7 +725,8 @@ internal sealed class DesktopPanels
                 {
                     // Keep room for history on normal screens; on narrow work areas
                     // the independent context-menu toggles make room for one view.
-                    var minimumLine = Math.Max(44, MeasureText("あ😀", bodyWidth));
+                    var minimumLine = bodyWidth >= BubbleLayout.MinimumBodyWidth
+                        ? Math.Max(44, MeasureText("あ😀", bodyWidth)) : double.PositiveInfinity;
                     if (available < composerChrome + minimumLine)
                     {
                         if (_composerBubble is not null)
@@ -772,7 +778,7 @@ internal sealed class DesktopPanels
                 try
                 {
                     _historyUnavailable.Text = "右クリックで入力を閉じると履歴を表示できます。";
-                    RenderHistory(width, historyRoom, _side);
+                    RenderHistory(bodyWidth, historyRoom, _side, scale);
                 }
                 catch (InvalidOperationException)
                 {
@@ -896,7 +902,7 @@ internal sealed class DesktopPanels
         var root = new DockPanel();
         var tail = new Polygon { Fill = paper, Stroke = Gold, StrokeThickness = 1 };
         root.Children.Add(tail);
-        root.Children.Add(Frame(content, paper, 9));
+        root.Children.Add(Frame(content, paper, BubbleLayout.FramePadding));
         SetTail(root, side);
         return root;
     }
@@ -906,10 +912,20 @@ internal sealed class DesktopPanels
         if (root.Tag is OverlaySide previous && previous == side) return;
         root.Tag = side;
         var tail = (Polygon)root.Children[0];
+        // Keep the established DockPanel measurement and leave an equal gutter
+        // opposite the ornament. Only the tail switches sides, not the frame.
+        var frame = (Border)root.Children[1];
+        var depth = BubbleLayout.TailDepth;
+        frame.Margin = side switch
+        {
+            OverlaySide.Right => new Thickness(0, 0, depth, 0),
+            OverlaySide.Left => new Thickness(depth, 0, 0, 0),
+            _ => new Thickness(depth, 0, depth, 0)
+        };
         tail.HorizontalAlignment = HorizontalAlignment.Center;
         tail.VerticalAlignment = VerticalAlignment.Center;
         tail.Stretch = Stretch.Fill;
-        tail.Width = 12;
+        tail.Width = depth;
         tail.Height = 20;
         switch (side)
         {
@@ -924,13 +940,13 @@ internal sealed class DesktopPanels
             case OverlaySide.Above:
                 DockPanel.SetDock(tail, Dock.Bottom);
                 tail.Width = 20;
-                tail.Height = 12;
+                tail.Height = depth;
                 tail.Points = new PointCollection { new(0, 0), new(10, 12), new(20, 0) };
                 break;
             default:
                 DockPanel.SetDock(tail, Dock.Top);
                 tail.Width = 20;
-                tail.Height = 12;
+                tail.Height = depth;
                 tail.Points = new PointCollection { new(0, 12), new(10, 0), new(20, 12) };
                 break;
         }
@@ -1004,7 +1020,7 @@ internal sealed class DesktopPanels
 
     private static Border Frame(UIElement child, Brush background, double padding) => new()
     {
-        Background = background, BorderBrush = Gold, BorderThickness = new Thickness(1),
+        Background = background, BorderBrush = Gold, BorderThickness = new Thickness(BubbleLayout.FrameBorder),
         CornerRadius = new CornerRadius(11), Padding = new Thickness(padding), Child = child
     };
 
