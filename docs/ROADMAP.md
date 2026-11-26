@@ -50,6 +50,8 @@
 | MGMT-39 | キャラクター動作の拡張方針を恒久化 | 管理 | M21、MGMT-30 | `milestone/MGMT-39-action-extensibility-rule` | [MGMT-39](milestones/MGMT-39.md) |
 | MGMT-40 | キャラクターアクションの追加計画と運用を登録 | 管理 | MGMT-39、M33 | `milestone/MGMT-40-register-character-action-followups` | [MGMT-40](milestones/MGMT-40.md) |
 | M41 | アプリ起動時のキャラクターアクション | 優先度は着手時に確認 | M08・M09・M21（完了） | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
+| MGMT-42 | 履歴発言の折りたたみを登録 | 管理 | MGMT-40 | `milestone/MGMT-42-register-history-collapse` | [MGMT-42](milestones/MGMT-42.md) |
+| M43 | 履歴の発言ごとの折りたたみ表示 | 優先度は着手時に確認 | M03・M22、M35と整合 | `milestone/M43-history-message-collapse` | [M43](milestones/M43.md) |
 
 ## 着手順と依存
 

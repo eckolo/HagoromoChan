@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -38,7 +39,7 @@ internal sealed class DesktopPanels
     private readonly Border _navFrame;
     private readonly Button _closeConversation = ActionButton("×");
     private readonly TextBlock _historyUnavailable = Label("入力を閉じると履歴を表示できます。", 12);
-    private readonly Dictionary<string, IReadOnlyList<TextSlice>> _historyPages = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<LiveHistoryViewport.Page>> _historyPages = new(StringComparer.Ordinal);
     private readonly StackPanel _statusContent = new();
     private readonly Action<IReadOnlyList<string>> _markRead;
     private bool _activatingComposer;
@@ -54,7 +55,7 @@ internal sealed class DesktopPanels
     private ChatMessage[] _history = [];
     private HashSet<string> _unread = new(StringComparer.Ordinal);
     private string? _anchorId;
-    private int _anchorOffset;
+    private int _anchorPage;
     private double _historyWidth;
     private double _historyMaximum;
     private double _historyScale;
@@ -64,7 +65,7 @@ internal sealed class DesktopPanels
     private readonly Dictionary<string, HistoryCard> _liveHistory = new(StringComparer.Ordinal);
     private sealed record HistoryCard(DockPanel Card, Button Read, TextBlock Header, string Title,
         TextBox Body, LiveHistoryViewport Viewport);
-    private readonly record struct HistoryCardKey(string Id, int Start, int Length, double Height,
+    private readonly record struct HistoryCardKey(string Id, int FirstBand, int BandCount, double Height,
         int Page, int PageCount, double Width, double Scale, OverlaySide Side);
     private DockPanel? _composerBubble;
 
@@ -375,14 +376,14 @@ internal sealed class DesktopPanels
     public void SelectLatest()
     {
         _anchorId = _history.LastOrDefault()?.Id;
-        _anchorOffset = 0;
+        _anchorPage = 0;
         RequestArrange();
     }
 
-    private void SetAnchor(string id, int offset)
+    private void SetAnchor(string id, int page)
     {
         _anchorId = id;
-        _anchorOffset = offset;
+        _anchorPage = page;
     }
 
     public void SetDraftText(string text)
@@ -439,18 +440,18 @@ internal sealed class DesktopPanels
     {
         if (_composing) return;
         MessageInput.Focus();
-        var edge = direction < 0 ? MessageInput.GetFirstVisibleLineIndex() : MessageInput.GetLastVisibleLineIndex();
-        if (edge < 0) return;
-        var line = Math.Clamp(edge + direction, 0, Math.Max(0, MessageInput.LineCount - 1));
-        var index = MessageInput.GetCharacterIndexFromLineIndex(line);
-        if (index >= 0)
-        {
-            MessageInput.CaretIndex = index;
-            MessageInput.ScrollToLine(line);
-        }
+        // Let the active native editor own page/caret navigation. Do not
+        // rebuild private line layout from a viewport-offset or line index.
+        var command = direction < 0 ? EditingCommands.MoveUpByPage : EditingCommands.MoveDownByPage;
+        if (command.CanExecute(null, MessageInput))
+            command.Execute(null, MessageInput);
+        else if (direction < 0)
+            MessageInput.PageUp();
+        else
+            MessageInput.PageDown();
     }
 
-    private IReadOnlyList<TextSlice> Pages(int index)
+    private IReadOnlyList<LiveHistoryViewport.Page> Pages(int index)
     {
         var message = _history[index];
         if (_historyPages.TryGetValue(message.Id, out var pages)) return pages;
@@ -463,8 +464,7 @@ internal sealed class DesktopPanels
         // WPF uses the conversation's DPI and actual content template.
         if (!_historyStack.Children.Contains(card.Card))
             _historyStack.Children.Add(card.Card);
-        pages = card.Viewport.Layout(_historyWidth, _historyMaximum, _historyScale)
-            .Select(page => page.Slice).ToArray();
+        pages = card.Viewport.Layout(_historyWidth, _historyMaximum, _historyScale);
         _historyPages[message.Id] = pages;
         if (card.Viewport.BeginOneGeometryRetry())
             QueueLiveGeometryRetry(message.Id, card.Viewport);
@@ -493,7 +493,7 @@ internal sealed class DesktopPanels
             SelectLatest();
             index = _history.Length - 1;
         }
-        return new HistoryPosition(index, TextPaging.PageAt(Pages(index), _anchorOffset));
+        return new HistoryPosition(index, Math.Clamp(_anchorPage, 0, Pages(index).Count - 1));
     }
 
     private void MoveHistory(int direction)
@@ -510,14 +510,15 @@ internal sealed class DesktopPanels
             : HistoryNavigation.Newer(position, _history.Length, i => Pages(i).Count);
         if (next is not { } target) return;
         var before = RenderedHistoryPages();
-        SetAnchor(_history[target.Message].Id, Pages(target.Message)[target.Page].Start);
+        var terminal = target.Page > 0 && target.Page == Pages(target.Message).Count - 1;
+        SetAnchor(_history[target.Message].Id, terminal ? int.MaxValue : target.Page);
         Arrange();
         QueueHistoryRead(HistoryReadGesture.Navigation, before, ignoreComposerFocus: true);
         VisibilityChanged?.Invoke();
     }
 
     private HistoryPageIdentity[] RenderedHistoryPages() =>
-        _renderedKeys.Select(key => new HistoryPageIdentity(key.Id, key.Start, key.Length)).ToArray();
+        _renderedKeys.Select(key => new HistoryPageIdentity(key.Id, key.FirstBand, key.BandCount)).ToArray();
 
     private void QueueHistoryRead(HistoryReadGesture gesture, HistoryPageIdentity[] before, bool ignoreComposerFocus)
     {
@@ -536,7 +537,7 @@ internal sealed class DesktopPanels
             var active = Conversation.IsActive;
             var laidOut = _renderedKeys.Where(key =>
                 _cards.TryGetValue(key, out var entry) && IsLaidOutHistoryCard(entry.Card))
-                .Select(key => new HistoryPageIdentity(key.Id, key.Start, key.Length)).ToHashSet();
+                .Select(key => new HistoryPageIdentity(key.Id, key.FirstBand, key.BandCount)).ToHashSet();
             var targets = HistoryReadPolicy.Targets(gesture, active, composerFocused, before, offered,
                 laidOut, _unread);
             if (targets.Length > 0)
@@ -613,7 +614,7 @@ internal sealed class DesktopPanels
             var message = _history[position.Message];
             var pages = Pages(position.Message);
             var page = pages[position.Page];
-            return (Position: position, Key: new HistoryCardKey(message.Id, page.Start, page.Length,
+            return (Position: position, Key: new HistoryCardKey(message.Id, page.FirstBand, page.BandCount,
                 page.Height, position.Page, pages.Count, bodyWidth, scale, side));
         }).ToArray();
         var wanted = desired.Select(item => (UIElement)_liveHistory[item.Key.Id].Card).ToHashSet();

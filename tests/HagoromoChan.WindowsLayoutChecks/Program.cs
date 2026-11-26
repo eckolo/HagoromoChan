@@ -1,5 +1,8 @@
 using System.Reflection;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Automation.Text;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -55,6 +58,21 @@ internal static class Program
                 var view = (Decorator)((StackPanel)frame.Child).Children[1];
                 return (card, frame, view, (TextBox)view.Child);
             }
+            void ExerciseNativeTextHit(Decorator viewport, TextBox box)
+            {
+                // The production-shaped, attached read-only TextBox must still
+                // support point-to-text and selection. UI Automation invokes
+                // native hit-testing without moving the operator's pointer.
+                var peer = new TextBoxAutomationPeer(box);
+                var provider = peer.GetPattern(PatternInterface.Text) as ITextProvider;
+                Require(provider is not null, "The retained history body lost its native text provider.");
+                var pixel = viewport.PointToScreen(new Point(viewport.ActualWidth / 4, viewport.ActualHeight / 3));
+                var hit = provider!.RangeFromPoint(pixel);
+                Require(hit is not null, "The native history TextBox cannot hit-test its live attached viewport.");
+                hit!.ExpandToEnclosingUnit(TextUnit.Character);
+                hit.Select();
+                Require(box.SelectionLength > 0, "Point-to-text did not select content in the retained TextBox.");
+            }
             double ViewTop(Decorator view) => (double)view.GetType().GetProperty("ViewTop", Flags)!.GetValue(view)!;
             bool Known(Decorator view) => (bool)view.GetType().GetProperty("GeometryKnown", Flags)!.GetValue(view)!;
             void InsideClient(FrameworkElement element)
@@ -81,6 +99,7 @@ internal static class Program
                 Require(Known(view) && body.Text == topic, "Production 600-character fixture uses unverified fallback.");
                 if (body.ActualHeight <= view.ActualHeight)
                     CheckTailInk(view, body, ViewTop(view), verifyNegativeControl: id == "topic-user");
+                ExerciseNativeTextHit(view, body);
             }
 
             Invoke("ShowMessage", "long");
@@ -121,8 +140,9 @@ internal static class Program
                 var (_, _, first, body) = Active();
                 Require(ViewTop(first) == 0, "The first page did not start at the top.");
                 body.Select(0, 3);
-                // Request the exact last original character; this is also a trailing-CRLF test.
-                Invoke("SetAnchor", "long", longText.Length - 1);
+                // Request the terminal physical page; no character/line replay.
+                // The same TextBox still contains the original trailing CRLF.
+                Invoke("SetAnchor", "long", int.MaxValue);
                 Invoke("RenderHistory", width, 175.0, Enum.Parse(sideType, "Left"), gpuScale);
                 window.UpdateLayout();
                 var (card, _, last, sameBody) = Active();
@@ -130,7 +150,9 @@ internal static class Program
                 Require(ReferenceEquals(first, last) && ReferenceEquals(body, sameBody) &&
                     sameBody.SelectionLength == 3 && ViewTop(last) > 0 && Known(last),
                     "Paging recreated the native body, altered selection, or missed its tail.");
+                sameBody.Select(0, 0);
                 CheckTailInk(last, sameBody, ViewTop(last), verifyNegativeControl: false);
+                ExerciseNativeTextHit(last, sameBody);
             }
 
             Invoke("SetDraftText", longText);
