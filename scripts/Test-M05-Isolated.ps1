@@ -1,10 +1,10 @@
-#requires -Version 7.0
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
   Run the M05 Windows UI preview with isolated data while the installed app keeps running.
 .DESCRIPTION
-  Requires Git, PowerShell 7, and the Windows .NET 10 SDK. Only GitHub/NuGet and
-  two local loopback endpoints are used. Does not use the production launcher,
+  Requires a local HagoromoChan Git checkout and the Windows .NET 10 SDK.
+  Only the local Git objects, NuGet, and two loopback endpoints are used. Does not use the production launcher,
   tunnel, connector or database. Test files are left in a uniquely named temp folder.
   Press Enter after inspection to stop only the test processes.
 .PARAMETER NoDesktop
@@ -18,8 +18,38 @@ $vars=@('GIT_TERMINAL_PROMPT','DOTNET_CLI_HOME','NUGET_PACKAGES','DOTNET_CLI_TEL
 $savedEnv=@{}
 foreach($name in $vars){$savedEnv[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $prod='http://127.0.0.1:48732'
+$pin='4244fe7b5fd1ecef48f20f9287545c6b26a1abce'
+$localRepo=git -C $PSScriptRoot rev-parse --show-toplevel 2>$null
+if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($localRepo)){
+  throw 'Run this script from scripts\ inside your local HagoromoChan Git checkout.'
+}
+git -C $localRepo cat-file -e "$pin^{commit}" 2>$null
+if($LASTEXITCODE -ne 0){
+  throw 'The M05 source commit is missing. Run git fetch origin milestone/M05-other-conversations and retry.'
+}
+Add-Type -AssemblyName System.Net.Http
+$handler=[Net.Http.HttpClientHandler]::new()
+$handler.UseProxy=$false
+$handler.AllowAutoRedirect=$false
+$http=[Net.Http.HttpClient]::new($handler)
+$http.Timeout=[TimeSpan]::FromSeconds(5)
+function LocalJson([string]$method,[string]$uri,[string]$key,$data){
+  $request=[Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::new($method),$uri)
+  try {
+    if($key){$request.Headers.Authorization=[Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$key)}
+    if($null -ne $data){
+      $json=ConvertTo-Json -Depth 12 -Compress -InputObject $data
+      $request.Content=[Net.Http.StringContent]::new($json,[Text.Encoding]::UTF8,'application/json')
+    }
+    $res=$http.SendAsync($request).GetAwaiter().GetResult()
+    try {
+      if(-not $res.IsSuccessStatusCode){throw "Local HTTP response: $([int]$res.StatusCode)"}
+      $res.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json
+    } finally {$res.Dispose()}
+  } finally {$request.Dispose()}
+}
 function Prod {
-  try { $h=Invoke-RestMethod -NoProxy -Uri "$prod/health" -TimeoutSec 3; "$($h.service)|$($h.status)|$($h.managedSession)" }
+  try { $h=LocalJson GET "$prod/health" '' $null; "$($h.service)|$($h.status)|$($h.managedSession)" }
   catch { 'unavailable' }
 }
 $before=Prod
@@ -32,10 +62,12 @@ try {
   $env:GIT_TERMINAL_PROMPT='0'
   foreach($name in @('HAGOROMO_MANAGED_SESSION','HAGOROMO_STOP_EVENT','HAGOROMO_CONTROL_PIPE')){[Environment]::SetEnvironmentVariable($name,$null,'Process')}
   Write-Host "Trial folder: $base"
-  git -c credential.interactive=never clone --single-branch --no-tags --branch milestone/M05-other-conversations https://github.com/eckolo/HagoromoChan.git $repo
-  if($LASTEXITCODE -ne 0){throw 'clone failed'}
-  git -C $repo checkout --detach 4244fe7b5fd1ecef48f20f9287545c6b26a1abce
-  if($LASTEXITCODE -ne 0 -or (git -C $repo rev-parse HEAD) -ne '4244fe7b5fd1ecef48f20f9287545c6b26a1abce'){throw 'pinned checkout failed'}
+  $archive=Join-Path $base 'pinned-source.zip'
+  git -C $localRepo archive --format=zip "--output=$archive" $pin
+  if($LASTEXITCODE -ne 0){throw 'Pinned source export from the local Git checkout failed.'}
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::ExtractToDirectory($archive,$repo)
+  Write-Host "Source: $pin (local Git objects)"
   $socket=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0); $socket.Start(); $port=$socket.LocalEndpoint.Port; $socket.Stop()
   if($port -eq 48732){throw 'port collision'}
   $ep="http://127.0.0.1:$port"
@@ -45,7 +77,7 @@ try {
     if(([regex]::Matches($old,'48732')).Count -ne $paths[$r]){throw 'port literal guard'}
     [IO.File]::WriteAllText($p,$old.Replace('48732',"$port"),[Text.UTF8Encoding]::new($false))
   }
-  git -C $repo diff --numstat
+  Write-Host "Trial loopback port: $port"
   $env:DOTNET_CLI_HOME=Join-Path $base 'dotnet-home'
   $env:NUGET_PACKAGES=Join-Path $base 'packages'
   $env:DOTNET_CLI_TELEMETRY_OPTOUT='1'
@@ -68,27 +100,22 @@ try {
   $health=$null
   for($n=0;$n -lt 24;$n++){
     if($relay.HasExited){ Get-Content -LiteralPath (Join-Path $base 'relay.err') -ErrorAction SilentlyContinue; throw "test Relay exited $($relay.ExitCode)"}
-    try {$health=Invoke-RestMethod -NoProxy -Uri "$ep/health" -TimeoutSec 1;break} catch {Start-Sleep -Milliseconds 250}
+    try {$health=LocalJson GET "$ep/health" '' $null;break} catch {Start-Sleep -Milliseconds 250}
   }
   if($health.status -ne 'ok' -or $health.managedSession){throw 'isolated health failed'}
   $token=[IO.File]::ReadAllText((Join-Path $env:HAGOROMO_DATA_DIR 'relay.token')).Trim()
-  $headers=@{Authorization="Bearer $token"}
-  function Request($method,$path,$data){
-    $opt=@{Method=$method;Headers=$headers;Uri="$ep$path";NoProxy=$true;TimeoutSec=5}
-    if($null -ne $data){$opt.ContentType='application/json';$opt.Body=ConvertTo-Json -Depth 12 -Compress -InputObject $data}
-    Invoke-RestMethod @opt
-  }
+  function Request($method,$path,$data){LocalJson $method "$ep$path" $token $data}
   $s1=Request POST /api/m05/sources @{kind='chat';url="https://chatgpt.com/c/$([Guid]::NewGuid())";title='M05 Win Chat alpha'}
   $s2=Request POST /api/m05/sources @{kind='work';url="https://chatgpt.com/c/$([Guid]::NewGuid())";title='M05 Win Work beta'}
   $pi=[Diagnostics.ProcessStartInfo]::new($dot)
-  $pi.ArgumentList.Add($rd.FullName);$pi.ArgumentList.Add('--mcp-stdio')
+  $pi.Arguments='"' + $rd.FullName + '" --mcp-stdio'
   $pi.UseShellExecute=$false;$pi.CreateNoWindow=$true;$pi.RedirectStandardInput=$true;$pi.RedirectStandardOutput=$true;$wire=[Diagnostics.Process]::Start($pi)
   function Rpc([int]$id,[string]$method,$p) {
     $wire.StandardInput.WriteLine((ConvertTo-Json -Depth 12 -Compress -InputObject @{jsonrpc='2.0';id=$id;method=$method;params=$p}))
     $task=$wire.StandardOutput.ReadLineAsync()
     if(-not $task.Wait(6000)){throw "stdio timeout $method"}
     if($null -eq $task.Result){throw "stdio closed $method"}
-    $task.Result | ConvertFrom-Json -Depth 20
+    $task.Result | ConvertFrom-Json
   }
   $listed=Rpc 1 'tools/list' @{}
   if('import_cloud_answer' -notin @($listed.result.tools.name)){throw 'tool unavailable'}
@@ -125,6 +152,7 @@ try {
   }
   foreach($name in $vars){[Environment]::SetEnvironmentVariable($name,$savedEnv[$name],'Process')}
   $after=Prod
+  $http.Dispose()
   if($before -ne 'unavailable') { "PRODUCTION_HEALTH_AND_SESSION_UNCHANGED=$($before -ceq $after)" }
   else { 'Production health was unavailable at preflight; no live app change attempted.' }
 }
