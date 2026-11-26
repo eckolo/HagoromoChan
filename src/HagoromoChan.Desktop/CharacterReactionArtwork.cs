@@ -34,6 +34,8 @@ internal sealed class CharacterReactionArtwork
     }
 
     public bool CanAnimate => _bundled is not null || _pack is not null;
+    public bool UsesCustomPack => _pack is not null;
+    public bool CanFarewell => _bundled is not null || _pack?.HasAction("farewell") == true;
     public ImageSource RestingImage => _pack is null
         ? _bundled?.RestingImage ?? _original
         : Frame("frozen", 0);
@@ -57,7 +59,7 @@ internal sealed class CharacterReactionArtwork
         progress = double.IsFinite(progress) ? Math.Clamp(progress, 0, 1) : 0;
         gazeX = double.IsFinite(gazeX) ? Math.Clamp(gazeX, -1, 1) : 0;
         gazeY = double.IsFinite(gazeY) ? Math.Clamp(gazeY, -1, 1) : -1;
-        if (_pack is null) return _bundled?.Frame(action, progress, gazeX, gazeY, Environment.TickCount64) ?? _original;
+        if (_pack is null) return _bundled?.Frame(action, progress, gazeX, gazeY) ?? _original;
 
         var bitmap = _pack.Select(action, progress, gazeX, gazeY);
         if (_packImages.TryGetValue(bitmap, out var result)) return result;

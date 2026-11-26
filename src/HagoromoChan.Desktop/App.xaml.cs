@@ -25,6 +25,7 @@ public partial class App : Application
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             var window = new MainWindow(dataDirectory);
             MainWindow = window;
+            SessionEnding += (_, _) => window.NoteSessionEnding();
             _stopRegistration = RuntimeControl.WatchStop(() =>
                 Dispatcher.BeginInvoke(new Action(window.RequestLocalExit)));
             window.Show();
