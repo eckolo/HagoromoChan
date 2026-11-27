@@ -156,22 +156,18 @@ internal sealed class LiveHistoryViewport(TextBox body) : Decorator
             lines.Add(new(origin, bounds.IsEmpty ? Rect.Empty : transform.TransformBounds(bounds)));
         }
         lines.Sort((a, b) => a.Origin.CompareTo(b.Origin));
-        // Require a complete sequence of visible native lines across the
-        // extent, without reformatting or querying character positions.
-        var firstOrigin = view.TransformToAncestor(body).Transform(new Point(0, 0)).Y;
-        if (lines.Count == 0 || Math.Abs(lines[0].Origin - firstOrigin) > 1e-4)
+        // The native extent may be layout-rounded while the drawing visual
+        // offsets retain fractional DIPs. Do not derive stride from extent/N.
+        var start = view.TransformToAncestor(body).Transform(new Point(0, 0)).Y;
+        var scale = VisualTreeHelper.GetDpi(view).DpiScaleY;
+        if (!BubbleLayout.CoversHistoryLineExtent(lines.Select(line => line.Origin).ToArray(),
+            start, scroll.ExtentHeight, scale))
         {
-            failure = $"Missing start of line sequence (lines={lines.Count}, origin={firstOrigin:F2}).";
+            var pitch = lines.Count > 1 ? lines[1].Origin - lines[0].Origin : 0;
+            failure = $"Incomplete line sequence (lines={lines.Count}, pitch={pitch:F4}, "
+                + $"extent={scroll.ExtentHeight:F4}, start={start:F4}, dpiScale={scale:F2}).";
             return [];
         }
-        var lineHeight = scroll.ExtentHeight / lines.Count;
-        for (var i = 0; i < lines.Count; i++)
-            if (!double.IsFinite(lines[i].Origin) ||
-                Math.Abs(lines[i].Origin - firstOrigin - i * lineHeight) > 1e-4)
-            {
-                failure = $"Incomplete line sequence (line={i}, lines={lines.Count}, height={lineHeight:F2}).";
-                return [];
-            }
         return lines;
     }
 

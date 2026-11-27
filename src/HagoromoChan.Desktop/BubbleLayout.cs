@@ -13,6 +13,31 @@ internal static class BubbleLayout
     public static double RoundUp(double dip, double scale) => Math.Ceiling(dip * scale) / scale;
     public static double RoundDown(double dip, double scale) => Math.Floor(dip * scale) / scale;
 
+    // TextBoxView puts visual lines at a uniform DIP stride. Its public
+    // scroll extent can be rounded to device pixels independently. Infer the
+    // stride from drawing coordinates, then compare the complete sequence to
+    // the native extent with at most one device pixel of total rounding.
+    internal static bool CoversHistoryLineExtent(IReadOnlyList<double> origins,
+        double start, double extent, double scale)
+    {
+        const double epsilon = 1e-4;
+        if (origins.Count == 0 || !double.IsFinite(start) || !double.IsFinite(extent) || extent <= 0 ||
+            !double.IsFinite(scale) || scale <= 0 ||
+            !double.IsFinite(origins[0]) || Math.Abs(origins[0] - start) > epsilon)
+            return false;
+        // With one visual no stride can be derived; the caller still requires
+        // an unscrolled, fully arranged native view and complete glyph bounds.
+        if (origins.Count == 1) return true;
+        var pitch = origins[1] - origins[0];
+        if (!double.IsFinite(pitch) || pitch <= 1 / scale ||
+            Math.Abs(extent - pitch * origins.Count) > 1 / scale + epsilon)
+            return false;
+        for (var i = 1; i < origins.Count; i++)
+            if (!double.IsFinite(origins[i]) || Math.Abs((origins[i] - origins[0]) - i * pitch) > epsilon)
+                return false;
+        return true;
+    }
+
     // The frame's horizontal origin must not depend on which gutter holds the tail.
     public static double BodyWidth(double width, double scale) => Math.Max(0, RoundDown(width
         - 2 * (RoundUp(TailDepth, scale) + RoundUp(FrameBorder, scale) + RoundUp(FramePadding, scale)), scale));

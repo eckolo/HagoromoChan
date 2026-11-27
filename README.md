@@ -19,18 +19,29 @@ M03 v2.3では透過キャラクターの常駐表示、クリック・右クリ
 
 実際の羽衣ちゃんへの接続には、利用アカウントでのカスタムMCP／イベント／書き込みツールの利用権限と、Secure MCP Tunnelの設定が必要です。イベント受領から返事までの時間、公式のDot会話での表示、書き込み時の承認動作は実アカウントで確認します。
 
-## Windowsで起動する（M08 v1.0.4）
+## Windowsで起動する
 
-Windows 11、.NET 10 SDK（開発用）、.NET 10 Desktop/ASP.NET Coreランタイム、既存の公式tunnel-client 0.0.21とhagoromoプロファイルを使用します。初回は旧手動トンネル、Desktop、Relayを正常終了してください。会話データや購読の削除は不要です。
+前提は Windows 11、.NET 10 Desktop/ASP.NET Coreランタイム、公式の `tunnel-client` 0.0.21 と既存の `hagoromo` プロファイルです。ソースからビルドする場合は .NET 10 SDK も必要です。会話データや購読の削除は不要です。
 
-初回の設定・ビルド配置（既存プロファイルとruntimeキーを使用）:
+### 初期設定・接続先の変更
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure.ps1
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
+旧手動トンネル、Desktop、Relayが動いていれば正常終了してください。既存のトンネルプロファイルを指定して、アプリが使う接続設定とランタイムキーを保存します。アプリのビルドや配置は行いません。
 
-通常起動は %LOCALAPPDATA%\HagoromoChan\app\HagoromoChan.exe の起動だけです。Start.ps1 は同じexeを起動し、ビルドしません。右クリック「終了」「再起動」は管理下の全プロセスを対象とし、「接続状態」は既存状態窓を拡張します。スタートアップは Startup.ps1 -Action Enable で明示登録し、Disable で解除します。ソース更新はgit pull --ff-only等で行った後に Update.ps1 を実行します。開発用の個別再起動や確認は Control.ps1 を使用します。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure.ps1
+```
 
-詳しい移行・更新・テスト手順は [M08実機確認手順](docs/operations/M08-verification.md) を参照してください。M08 v1.0.4はユーザーの全般的な実機動作成功報告と受入に基づき完了とし、個別未検査は実機確認手順に残します。初回以降の更新時にキーを再入力する必要はありません。
+### 初回インストール・アプリの更新
+
+初期設定が済んだら、初回は以下でビルド・配置します。以後はソースを更新してから同じコマンドで入れ替えます。接続設定に変更がなければ `Configure.ps1` の再実行やキーの再入力は不要です。配置後は通常そのまま起動します。配置だけ行う場合は `-NoStart` を付けます。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
+```
+
+### 通常起動
+
+`%LOCALAPPDATA%\HagoromoChan\app\HagoromoChan.exe` を起動します。`Start.ps1` も同じexeを起動し、ビルドはしません。起動後は右クリックの「終了」「再起動」「接続状態」が使えます。自動起動は `Startup.ps1 -Action Enable`、解除は `-Action Disable` です。移行や復旧の詳細は [Windows実機手順](docs/operations/M08-verification.md) を参照してください。
 
 個別開発起動では、従来どおり先にRelay、別ターミナルでDesktopを実行できます（管理起動と同時には実行しない）。
 
@@ -39,13 +50,13 @@ Windows 11、.NET 10 SDK（開発用）、.NET 10 Desktop/ASP.NET Coreランタ�
 
 ## 開発テスト
 
-確認対象のコミットをチェックアウトして、リポジトリのルートで実行します。.NET SDK の要件は [global.json](global.json) を参照してください。どのコマンドもビルドし直してから検査を実行し、対象の Git コミットと成否を表示します。アプリ本体の更新、普段の会話データの使用、トンネル接続は行いません。
+確認対象のコミットをチェックアウトして、リポジトリのルートで実行します。.NET SDK の要件は [global.json](global.json) を参照してください。どのコマンドもビルドし直してから検査を実行し、対象の Git コミットと成否を表示します。アプリ本体の更新、普段の会話データの使用、トンネル接続は行いません。例の `-ExecutionPolicy Bypass` はその起動中の PowerShell にだけ適用します。端末の設定は変更しません。
 
 | 対象 | PowerShell から実行 |
 | --- | --- |
-| 基本の自動回帰 | `powershell -NoProfile -File .\scripts\Test.ps1 -Suite Core` |
-| Windows の会話窓・入力欄の描画（M35） | `powershell -NoProfile -File .\scripts\Test.ps1 -Suite WindowsLayout` |
-| 両方（Windows） | `powershell -NoProfile -File .\scripts\Test.ps1 -Suite All` |
+| 基本の自動回帰 | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite Core` |
+| Windows の会話窓・入力欄の描画（M35） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite WindowsLayout` |
+| 両方（Windows） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite All` |
 
 `WindowsLayout` は Windows のデスクトップ上で合成データの小窓を一時的に開きます。合格時は `PASS M35` に続けて `PASS WindowsLayout (exit=0)` と表示します。失敗時は最初のエラーと `FAIL ... (exit=...)` の行を共有してください。通常起動での確認を指定された場合は、テストスクリプトで代用せず通常どおり起動してください。
 
