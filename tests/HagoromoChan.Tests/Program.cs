@@ -90,7 +90,8 @@ foreach (var test in selectedTests)
     catch (Exception exception)
     {
         failures++;
-        Console.Error.WriteLine($"FAIL {test.Name}\n{exception}");
+        Console.WriteLine($"TEST-FAIL {test.Id}: {test.Name}");
+        Console.Error.WriteLine(exception);
     }
 }
 Console.WriteLine($"{selectedTests.Length - failures}/{selectedTests.Length} regression tests passed.");

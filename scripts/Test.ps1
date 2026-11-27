@@ -85,6 +85,8 @@ try {
     }
     Write-Host "HagoromoChan tests: $requested (HEAD $revision)"
     $results = @()
+    $failedTestIds = @()
+    $failureDetails = @{}
     $failed = $false
     $unsupported = $false
     foreach ($check in $checks) {
@@ -122,11 +124,24 @@ try {
         if ($TestName -and $check.selectArgument) { $testArguments += @($check.selectArgument, $TestName) }
         Write-Host "RUN  $name run"
         $code = $null
+        $reportedTestIds = @()
         try {
             if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) {
                 throw "Fresh test assembly not found: $dll"
             }
-            & $dotnet @testArguments
+            # Only stdout is parsed. Native stderr remains visible and does
+            # not become a terminating PowerShell error on 5.1.
+            & $dotnet @testArguments | ForEach-Object {
+                Write-Host $_
+                if ($_ -cmatch '^TEST-FAIL ([A-Za-z][A-Za-z0-9.-]*): (.*)$') {
+                    $id = $Matches[1]
+                    if (($check.selectionPrefix -and $id.StartsWith($check.selectionPrefix, [StringComparison]::Ordinal)) -or
+                        $check.cases -ccontains $id) {
+                        $reportedTestIds += $id
+                        $failureDetails[$id] = $Matches[2]
+                    }
+                }
+            }
             $code = $LASTEXITCODE
         } catch {
             Write-Host "ERROR ${name} run: $($_.Exception.Message)"
@@ -135,6 +150,13 @@ try {
             $failed = $true
             $detail = if ($null -eq $code) { 'not started' } else { "exit=$code" }
             $results += "FAIL $name run ($detail)"
+            if ($reportedTestIds.Count -gt 0) {
+                $failedTestIds += $reportedTestIds
+            } elseif ($null -ne $code -and $check.cases -and @($check.cases).Count -eq 1) {
+                # This executable owns exactly one registered test. Report
+                # its ID even if it exited before writing a result line.
+                $failedTestIds += $check.cases[0]
+            }
             continue
         }
         $results += "PASS $name run (exit=0)"
@@ -142,6 +164,13 @@ try {
     Write-Host "HagoromoChan test summary: $requested"
     foreach ($result in $results) { Write-Host $result }
     if ($failed) {
+        foreach ($id in ($failedTestIds | Sort-Object -Unique)) {
+            if ($failureDetails.ContainsKey($id)) {
+                Write-Host "FAILED TEST ${id}: $($failureDetails[$id])"
+            } else {
+                Write-Host "FAILED TEST $id"
+            }
+        }
         Write-Host "FAIL $requested (exit=1)"
         exit 1
     }
