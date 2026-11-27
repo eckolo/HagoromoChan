@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Markup;
+using System.Xml.Linq;
 using HagoromoChan.Contracts;
 using HagoromoChan.Desktop;
 
@@ -12,8 +14,17 @@ internal static class Program
     [STAThread]
     public static void Main()
     {
-        var app = new App();
-        app.InitializeComponent();
+        // Load the original styles, not an App instance: the latter queues
+        // production startup on this dispatcher and can open real data.
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        using var xaml = typeof(Program).Assembly.GetManifestResourceStream("ProductionApp.xaml")
+            ?? throw new InvalidOperationException("Production styles were not embedded.");
+        var source = XElement.Load(xaml);
+        var ns = source.Name.Namespace;
+        var styles = new XElement(ns + "ResourceDictionary",
+            source.Attributes().Where(attribute => attribute.IsNamespaceDeclaration),
+            source.Element(ns + "Application.Resources")!.Elements());
+        app.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(styles.ToString()));
         var type = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
         var owner = new Window();
         var panels = Activator.CreateInstance(type, owner, (Action)(() => { }),
@@ -32,7 +43,8 @@ internal static class Program
                 DateTimeOffset.UnixEpoch) }, Array.Empty<string>());
             Invoke("ToggleHistory");
             var overlaySide = type.Assembly.GetType("HagoromoChan.Desktop.OverlaySide", true)!;
-            var scale = VisualTreeHelper.GetDpi(root).DpiScaleX;
+            var dpi = VisualTreeHelper.GetDpi(root);
+            var scale = dpi.DpiScaleX;
             var layout = type.Assembly.GetType("HagoromoChan.Desktop.BubbleLayout", true)!;
             var width = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [root.Width, scale])!;
             var stack = (StackPanel)type.GetField("_historyStack", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -58,8 +70,16 @@ internal static class Program
                     if (offset == 0)
                         Require(body.LineCount > 1, "Unbroken history text failed to wrap at the window edge.");
                     var last = body.GetRectFromCharacterIndex(body.Text.Length - 1, trailingEdge: true);
-                    Require(!last.IsEmpty && last.Right <= body.ActualWidth + 1 / scale &&
-                        last.Bottom <= body.ActualHeight + 1 / scale, "Last character falls outside its page.");
+                    if (!(!last.IsEmpty && last.Right <= body.ActualWidth + 1 / scale &&
+                        last.Bottom <= body.ActualHeight + 1 / scale))
+                    {
+                        var rect = last.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        var context = FormattableString.Invariant($"side={side}; offset={offset}; pageLength={body.Text.Length}; dpi={dpi.PixelsPerInchX:G17}x{dpi.PixelsPerInchY:G17}; scale={dpi.DpiScaleX:G17}x{dpi.DpiScaleY:G17}; rect={rect}; actual={body.ActualWidth:G17}x{body.ActualHeight:G17} DIP; limits right={body.ActualWidth + 1 / scale:G17} bottom={body.ActualHeight + 1 / scale:G17}");
+                        var message = $"Last character falls outside its page. {context}";
+                        Console.WriteLine($"TEST-FAIL WindowsLayout.RenderedHistory: {message}");
+                        Console.Out.Flush();
+                        throw new InvalidOperationException(message);
+                    }
                     rebuilt.Append(body.Text);
                     offset += body.Text.Length;
                 }
