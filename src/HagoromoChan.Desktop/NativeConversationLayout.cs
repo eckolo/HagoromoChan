@@ -76,16 +76,13 @@ internal sealed class NativeHistoryStack : Panel
     private readonly HashSet<UIElement> _offered = [];
     private double _minimumCardHeight;
     private readonly Dictionary<UIElement, double> _previewMinimums = [];
-    private bool _fitFromTail;
-
-    public void SetCardBudgets(bool fitFromTail, Dictionary<UIElement, double> previewMinimums)
+    public void SetPreviewMinimums(Dictionary<UIElement, double> previewMinimums)
     {
-        if (_fitFromTail == fitFromTail && _previewMinimums.Count == previewMinimums.Count &&
+        if (_previewMinimums.Count == previewMinimums.Count &&
             previewMinimums.All(pair => _previewMinimums.TryGetValue(pair.Key, out var height) && height == pair.Value))
             return;
         _previewMinimums.Clear();
         foreach (var (card, height) in previewMinimums) _previewMinimums.Add(card, height);
-        _fitFromTail = fitFromTail;
         InvalidateMeasure();
     }
 
@@ -103,9 +100,8 @@ internal sealed class NativeHistoryStack : Panel
         _slots.Clear();
         if (!double.IsFinite(availableSize.Width) || !double.IsFinite(availableSize.Height)) return default;
         double used = 0;
-        for (var i = 0; i < InternalChildren.Count; i++)
+        foreach (UIElement card in InternalChildren)
         {
-            var card = InternalChildren[_fitFromTail ? InternalChildren.Count - 1 - i : i];
             var remaining = availableSize.Height - used;
             if (remaining < Math.Max(_minimumCardHeight, _previewMinimums.GetValueOrDefault(card))) break;
             card.Measure(new Size(availableSize.Width, remaining));
@@ -114,7 +110,6 @@ internal sealed class NativeHistoryStack : Panel
             _slots.Add((card, height));
             used += height;
         }
-        if (_fitFromTail) _slots.Reverse();
         return new Size(availableSize.Width, used);
     }
 

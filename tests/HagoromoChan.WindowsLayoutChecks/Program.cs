@@ -75,8 +75,7 @@ internal static class Program
             (DockPanel Card, Border Frame, TextBox Body) Active()
             {
                 Require(stack.Children.Count > 0, "Production history card disappeared.");
-                var anchor = (string?)type.GetField("_anchorId", Flags)!.GetValue(panels);
-                var card = stack.Children.OfType<DockPanel>().Single(c => Equals(c.Tag, anchor));
+                var card = (DockPanel)stack.Children[0];
                 var frame = (Border)card.Children[1];
                 return (card, frame, (TextBox)((DockPanel)frame.Child).Children[1]);
             }
@@ -268,6 +267,7 @@ internal static class Program
             // other card; shrink enough that it really leaves the viewport.
             Invoke("ShowMessage", "long");
             Layout("history newer document");
+            Require(stack.Children.Count == 1, "Returning to the newest reply unexpectedly added earlier cards.");
             Require(Active().Body.Text == longText && Active().Body.VerticalOffset <= 1 / scale,
                 "The newer expanded item did not start at its native beginning.");
             Invoke("MoveHistory", -1);

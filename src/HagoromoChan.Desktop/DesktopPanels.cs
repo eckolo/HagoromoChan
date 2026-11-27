@@ -586,7 +586,7 @@ internal sealed class DesktopPanels
     private void ClearHistory()
     {
         _historyStack.Children.Clear();
-        _historyStack.SetCardBudgets(false, []);
+        _historyStack.SetPreviewMinimums([]);
         _renderedKeys.Clear();
         _liveHistory.Clear();
     }
@@ -628,10 +628,10 @@ internal sealed class DesktopPanels
             }, available, _displayedHistory, minimum);
         }
 
-        var anchor = AnchorPosition();
-        var fitFromTail = anchor == _history.Length - 1;
-        var count = Math.Max(fitFromTail ? _historyPresentation.ProtectedCount : 1, (int)(available / minimum));
-        var first = fitFromTail ? Math.Max(0, anchor + 1 - count) : anchor;
+        // The protected range affects disclosure only. Preserve the existing
+        // displayed history slice and never fan out the visible list at latest.
+        var first = AnchorPosition();
+        var count = Math.Max(1, (int)(available / minimum));
         var wanted = _history.Skip(first).Take(count).Select(message => message.Id).ToArray();
         var previewMinimums = new Dictionary<UIElement, double>();
         var layoutAvailable = available;
@@ -687,7 +687,7 @@ internal sealed class DesktopPanels
             card.Read.Visibility = _unread.Contains(id) ? Visibility.Visible : Visibility.Collapsed;
             _renderedKeys.Add(id);
         }
-        _historyStack.SetCardBudgets(fitFromTail, previewMinimums);
+        _historyStack.SetPreviewMinimums(previewMinimums);
         UpdateHistoryArrows();
     }
 
@@ -728,7 +728,6 @@ internal sealed class DesktopPanels
         content.Children.Add(body);
         var bubble = Bubble(content, user ? UserPaper : AssistantPaper, user ? Opposite(side) : side);
         bubble.Margin = new Thickness(0, 0, 0, Gap);
-        bubble.Tag = message.Id;
         TrackHistoryClick(bubble, () => SetHistoryCollapsed(message.Id, false));
         return new(bubble, read, body, disclosure);
     }

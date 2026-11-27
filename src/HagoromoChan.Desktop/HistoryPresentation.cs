@@ -15,8 +15,6 @@ internal sealed class HistoryPresentation
     public static int NormalizePreviewLines(int value) =>
         value is >= MinimumPreviewLines and <= MaximumPreviewLines ? value : DefaultPreviewLines;
 
-    public int ProtectedCount => _protected.Count;
-
     public bool IsCollapsed(string id) => _manual.Contains(id) ||
         (!_protected.Contains(id) && !_open.Contains(id));
 
