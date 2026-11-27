@@ -462,6 +462,31 @@ internal static class Program
                 "Returning to the old Markdown card did not preserve its plain collapsed preview.");
             historyBudgetSetter.Invoke(root, [markdownClient.Width, markdownClient.Height]);
             Layout("restore Markdown client");
+
+            Phase("Markdown source view lifetime");
+            void ShowFormattedHistory(string stage)
+            {
+                Invoke("ShowMessage", "rich");
+                Layout(stage);
+                Require(ActiveContent().Content.Children[1] is RichTextBox,
+                    "Returning to an expanded Markdown card did not restore its default formatted view.");
+            }
+            ShowFormattedHistory("initial formatted view");
+            ClickHistoryButton("原文を表示");
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, 0.0]);
+            window.UpdateLayout();
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, markdownClient.Height]);
+            Layout("source view after intermediate relayout");
+            Require(Active().Body.Text == markdown, "Intermediate layout reset the visible card's source view.");
+            Invoke("HideSurfaces");
+            Layout("hide conversation");
+            ShowFormattedHistory("reopen conversation");
+            ClickHistoryButton("原文を表示");
+            Invoke("ShowMessage", "after-rich");
+            Layout("leave the source card");
+            Require(Active().Body.Text == "次の発言", "The source card did not leave the visible history.");
+            ShowFormattedHistory("revisit the source card");
+
             Console.WriteLine("PASS conversation layout: history rendering, navigation and editable draft");
         }
         finally

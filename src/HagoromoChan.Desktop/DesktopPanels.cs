@@ -63,6 +63,9 @@ internal sealed class DesktopPanels
     private readonly HistoryPresentation _historyPresentation = new();
     private readonly Dictionary<string, (string Text, HistoryBodyMeasurement Measurement)> _historyMeasurements = new(StringComparer.Ordinal);
     private HashSet<string> _displayedHistory = new(StringComparer.Ordinal);
+    // Raw view is local to one continuous display of a history card. It
+    // survives remeasuring/recreating the card, but not leaving history.
+    private readonly HashSet<string> _historySourceViews = new(StringComparer.Ordinal);
     private (double Width, double X, double Y, int Lines) _measurementKey;
     private (double Available, OverlaySide Side) _protectionBudget;
     private bool _historyProtectionDirty = true;
@@ -80,7 +83,6 @@ internal sealed class DesktopPanels
         Button Disclosure, Button Format, string Source)
     {
         public bool Collapsed { get; set; }
-        public bool ShowSource { get; set; }
         public bool TriedFormatting { get; set; }
         public RichTextBox? Formatted { get; set; }
         public TextBoxBase Body => (TextBoxBase)Content.Children[1];
@@ -568,6 +570,7 @@ internal sealed class DesktopPanels
     {
         _historyPresentation.LeftDisplay(_displayedHistory);
         _displayedHistory.Clear();
+        _historySourceViews.Clear();
     }
 
     private void QueueHistoryDisplayCommit()
@@ -589,6 +592,8 @@ internal sealed class DesktopPanels
                 _historyStack.Offers(card.Card)).ToHashSet(StringComparer.Ordinal);
             _historyPresentation.LeftDisplay(_displayedHistory.Except(next));
             _displayedHistory = next;
+            if (_historySourceViews.RemoveWhere(id => !next.Contains(id)) > 0)
+                RequestArrange();
         }));
     }
 
@@ -702,7 +707,7 @@ internal sealed class DesktopPanels
             card.Collapsed = preview is not null;
             if (preview is not null)
                 previewMinimums.Add(card.Card, preview.Height + chrome);
-            RenderHistoryBody(card, preview, bodyWidth);
+            RenderHistoryBody(card, preview, bodyWidth, _historySourceViews.Contains(id));
             card.Disclosure.Visibility = measure.CanCollapse ? Visibility.Visible : Visibility.Collapsed;
             card.Disclosure.Content = card.Collapsed ? "⌄" : "⌃";
             DescribeButton(card.Disclosure, card.Collapsed ? "全文を表示" : "折りたたむ");
@@ -738,9 +743,10 @@ internal sealed class DesktopPanels
         });
         var format = SymbolButton("{ }", "原文を表示", () =>
         {
-            if (!_liveHistory.TryGetValue(message.Id, out var card) || card.Collapsed || card.Formatted is null)
+            if (!_liveHistory.TryGetValue(message.Id, out var card) || card.Collapsed ||
+                card.Formatted is null || !_historyStack.Offers(card.Card))
                 return;
-            card.ShowSource = !card.ShowSource;
+            if (!_historySourceViews.Remove(message.Id)) _historySourceViews.Add(message.Id);
             RequestArrange();
         });
         format.Visibility = Visibility.Collapsed;
@@ -777,7 +783,7 @@ internal sealed class DesktopPanels
         return new(bubble, content, read, body, disclosure, format, message.Text);
     }
 
-    private static void RenderHistoryBody(HistoryCard card, HistoryExcerpt? preview, double width)
+    private static void RenderHistoryBody(HistoryCard card, HistoryExcerpt? preview, double width, bool showSource)
     {
         if (preview is null && !card.TriedFormatting)
         {
@@ -797,7 +803,7 @@ internal sealed class DesktopPanels
             }
         }
 
-        var target = preview is null && !card.ShowSource && card.Formatted is { } rich
+        var target = preview is null && !showSource && card.Formatted is { } rich
             ? (TextBoxBase)rich : card.Plain;
         target.Width = target.MaxWidth = width;
         if (target is TextBox plain)
@@ -817,7 +823,7 @@ internal sealed class DesktopPanels
             target.ScrollToHome();
         }
         card.Format.Visibility = preview is null && card.Formatted is not null ? Visibility.Visible : Visibility.Collapsed;
-        DescribeButton(card.Format, card.ShowSource ? "書式付きで表示" : "原文を表示");
+        DescribeButton(card.Format, showSource ? "書式付きで表示" : "原文を表示");
     }
 
     private static void TrackHistoryClick(DockPanel bubble, Action expand)
