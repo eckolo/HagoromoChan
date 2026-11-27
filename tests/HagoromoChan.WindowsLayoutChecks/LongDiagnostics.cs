@@ -14,13 +14,22 @@ internal static class LongDiagnostics
         "long-selected-wheel"
     ];
 
-    internal static int Run()
+    private static readonly string[] LayoutModes =
+    [
+        "layout-short",
+        "layout-long",
+        "layout-constrained",
+        "layout-navigation",
+        "layout-composer"
+    ];
+
+    internal static int Run(bool layout)
     {
         var path = Directory.CreateTempSubdirectory("HagoromoChan-M35-").FullName;
         Console.WriteLine($"M35 diagnostic logs: {path}");
-        Console.WriteLine("Wheel is a synthetic routed preview event, not physical input; the child log identifies hovered-body vs current-history fallback.");
+        if (!layout) Console.WriteLine("Wheel is a synthetic routed preview event, not physical input; the child log identifies hovered-body vs current-history fallback.");
         var failed = false;
-        foreach (var mode in Modes)
+        foreach (var mode in layout ? LayoutModes : Modes)
         {
             try { failed |= !RunOne(path, mode); }
             catch (Exception ex)

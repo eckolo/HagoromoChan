@@ -56,9 +56,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
 | --- | --- |
 | 基本の自動回帰 | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite Core` |
 | Windows の会話窓・入力欄の描画（M35） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite WindowsLayout` |
+| M35 の長文強制終了を切り分ける6ケース（Windows） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite M35LongDiagnostics` |
 | 両方（Windows） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite All` |
 
-`WindowsLayout` は Windows のデスクトップ上で合成データの小窓を一時的に開きます。通常の羽衣ちゃんを終了する必要はありません。合格時は `PASS M35` に続けて `PASS WindowsLayout (exit=0)` と表示します。失敗時は最初のエラーと `FAIL ... (exit=...)` の行を共有してください。通常起動での確認を指定された場合は、テストスクリプトで代用せず通常どおり起動してください。
+`WindowsLayout` は Windows のデスクトップ上で合成データの小窓を一時的に開きます。通常の羽衣ちゃんを終了する必要はありません。短い送受信、長文、狭い表示、発言間移動、入力欄は独立した5グループで確認し、各グループの結果を表示します。あるグループが強制終了しても、残りの独立したグループは続けます。全グループが合格すると `PASS WindowsLayout (exit=0)` と表示します。失敗しても、独立した後続の検査は続けます。ビルドに失敗した検査は古いバイナリを実行せず `SKIP` とし、全体は非ゼロで終了します。最後の要約に各ビルド・実行の結果が出ます。
+
+`M35LongDiagnostics` は任意の診断です。`All` に含まれる通常の基本回帰・描画検査には含めません。1回のビルドで6ケースを独立したプロセスで実行し、一部が強制終了しても残りを続けます。失敗時は、最後の要約と最初のエラーを共有してください。通常起動での確認を指定された場合は、テストスクリプトで代用せず通常どおり起動してください。
 
 ## 羽衣ちゃんを接続する
 
