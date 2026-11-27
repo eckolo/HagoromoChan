@@ -13,6 +13,7 @@ internal sealed class DesktopPreferences
     public int? ScreenY { get; set; }
     public int Height { get; set; } = 260;
     public int LayoutVersion { get; set; }
+    public int HistoryPreviewLines { get; set; } = HistoryPresentation.DefaultPreviewLines;
     public bool Topmost { get; set; } = true;
     public bool ReactionsEnabled { get; set; } = true;
     // Missing in older preference files, which always respected the Windows setting.
@@ -73,6 +74,7 @@ internal sealed class DesktopPreferencesStore(string directory)
             value.Height = 260;
         value.Height = value.Height is 120 or 180 or 260 ? value.Height : 260;
         value.LayoutVersion = 2;
+        value.HistoryPreviewLines = HistoryPresentation.NormalizePreviewLines(value.HistoryPreviewLines);
         value.UnreadIds ??= new HashSet<string>(StringComparer.Ordinal);
         if (value.ObservedSequence is < 0)
             throw new InvalidDataException("通知基準が不正です。");

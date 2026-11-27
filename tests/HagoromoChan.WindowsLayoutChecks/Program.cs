@@ -39,6 +39,24 @@ internal static class Program
         var desktop = type.Assembly.GetType("HagoromoChan.Desktop.NativeDesktop", true)!;
         var sideType = type.Assembly.GetType("HagoromoChan.Desktop.OverlaySide", true)!;
         var layout = type.Assembly.GetType("HagoromoChan.Desktop.BubbleLayout", true)!;
+        // A history card can be measured before its theme template exists.
+        // Keep the startup regression in the same Windows conversation test.
+        Phase("History metrics before template");
+        var measuringBody = (TextBox)type.GetMethod("HistoryBodyBox", Flags | BindingFlags.Static)!.Invoke(null, null)!;
+        measuringBody.Template = null;
+        var metricsType = type.Assembly.GetType("HagoromoChan.Desktop.HistoryBodyMeasurement", true)!;
+        var metrics = metricsType.GetMethod("Measure")!.Invoke(null,
+            [measuringBody, "一行目\r\n二行目\r\n三行目\r\n四行目", 220d, new DpiScale(1, 1), 3])!;
+        var previews = (Array)metricsType.GetProperty("Excerpts")!.GetValue(metrics)!;
+        var full = (double)metricsType.GetProperty("FullHeight")!.GetValue(metrics)!;
+        Require(measuringBody.Template is null && previews.Length == 3 && double.IsFinite(full) && full > 0,
+            "An untemplated history body could not produce three whole-line previews.");
+        var third = previews.GetValue(2)!;
+        var preview = (string)third.GetType().GetProperty("Text")!.GetValue(third)!;
+        var previewHeight = (double)third.GetType().GetProperty("Height")!.GetValue(third)!;
+        Require(preview == "一行目\r\n二行目\r\n三行目" && previewHeight > 0 && previewHeight < full,
+            "Pre-template formatting miscounted explicit line breaks or the expanded/preview heights.");
+
         Phase("owner.Show");
         owner.Show();
         Phase("owner.Show completed");
@@ -65,12 +83,13 @@ internal static class Program
                 + "\r\n最終行：語😀 gypqç";
             Require(topic.Length is >= 550 and <= 750, "Keep the production fixture near 600 characters.");
             var longText = topic + "\r\n" + string.Concat(Enumerable.Repeat("ABC123折り返し😀", 350)) + "\r\n末尾gypq語\r\n";
-            Invoke("UpdateHistory", new[]
+            var history = new[]
             {
                 new ChatMessage(1, "topic-user", "user", topic, null, DateTimeOffset.UnixEpoch),
                 new ChatMessage(2, "topic-assistant", "assistant", topic, "topic-user", DateTimeOffset.UnixEpoch),
                 new ChatMessage(3, "long", "assistant", longText, "topic-user", DateTimeOffset.UnixEpoch)
-            }, Array.Empty<string>());
+            };
+            Invoke("UpdateHistory", history, Array.Empty<string>());
 
             (DockPanel Card, Border Frame, TextBox Body) Active()
             {
@@ -236,13 +255,65 @@ internal static class Program
             Invoke("MoveHistory", -1);
             Layout("history older document");
             var previous = Active().Body;
-            Require(previous.Text == topic &&
-                Math.Abs(previous.VerticalOffset - Math.Max(0, previous.ExtentHeight - previous.ViewportHeight)) <= 1 / scale,
-                "Crossing into the older history item did not land at its native end.");
-            Invoke("MoveHistory", 1);
+            Require(topic.StartsWith(previous.Text, StringComparison.Ordinal) && previous.Text != topic &&
+                previous.LineCount == 3 && previous.VerticalOffset <= 1 / scale,
+                "Older history did not return as a whole-line preview at its beginning.");
+            object Disclosure()
+            {
+                var (_, frame, _) = Active();
+                var header = (DockPanel)((DockPanel)frame.Child).Children[0];
+                return header.Children.OfType<Button>().Single(b =>
+                    System.Windows.Automation.AutomationProperties.GetName(b) is "全文を表示" or "折りたたむ");
+            }
+            void ToggleDisclosure()
+            {
+                var button = (Button)Disclosure();
+                button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
+                Layout("history disclosure");
+            }
+            ToggleDisclosure();
+            Require(ReferenceEquals(Active().Body, previous) && previous.Text == topic,
+                "The same older card should restore all the original text when expanded.");
+            // A native resize can perform intermediate layouts before the
+            // dispatcher reaches the stable view. None is a page navigation.
+            var historyBudgetSetter = root.GetType().GetMethod("SetClientBudget", Flags)!;
+            var historyWidth = root.ActualWidth;
+            historyBudgetSetter.Invoke(root, [historyWidth, 0.0]);
+            window.UpdateLayout();
+            historyBudgetSetter.Invoke(root, [historyWidth, room]);
+            Layout("restore viewport before display commit");
+            Invoke("UpdateHistory", history, new[] { "long" });
+            Layout("history refresh after disclosure");
+            Require(ReferenceEquals(Active().Body, previous) && previous.Text == topic,
+                "A transient empty layout closed the same expanded history page on refresh.");
+            CheckTailInkAfterScroll(previous, "gypqç");
+            ToggleDisclosure();
+            Invoke("SetHistoryPreviewLines", 2);
+            Layout("history preview setting");
+            Require(Active().Body.LineCount == 2 && Active().Body.Text != topic,
+                "Changing the preview preference did not apply to a collapsed history card.");
+            ToggleDisclosure();
+            Require(Active().Body.Text == topic, "The expanded card did not preserve the full source.");
+            // Opening the recent message advances the anchor without changing the
+            // other card; shrink enough that it really leaves the viewport.
+            Invoke("ShowMessage", "long");
             Layout("history newer document");
+            Require(stack.Children.Count == 1, "Returning to the newest reply unexpectedly added earlier cards.");
             Require(Active().Body.Text == longText && Active().Body.VerticalOffset <= 1 / scale,
-                "Crossing into the newer history item did not land at its native beginning.");
+                "The newer expanded item did not start at its native beginning.");
+            Invoke("MoveHistory", -1);
+            Layout("revisit older history");
+            Require(Active().Body.Text != topic && Active().Body.LineCount == 2,
+                "The older expanded card did not re-collapse after leaving the viewport.");
+            Invoke("ShowMessage", "long");
+            Layout("resume recent history");
+
+            void CheckTailInkAfterScroll(TextBox body, string suffix)
+            {
+                body.ScrollToEnd();
+                Layout("expanded history terminal");
+                CheckTailInk(window, body, suffix, verifyNegativeControl: false);
+            }
 
             Phase("SetDraftText and OpenBoth");
             Invoke("SetDraftText", longText);

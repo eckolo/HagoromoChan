@@ -75,6 +75,17 @@ internal sealed class NativeHistoryStack : Panel
     private readonly List<(UIElement Card, double Height)> _slots = [];
     private readonly HashSet<UIElement> _offered = [];
     private double _minimumCardHeight;
+    private readonly Dictionary<UIElement, double> _previewMinimums = [];
+    public void SetPreviewMinimums(Dictionary<UIElement, double> previewMinimums)
+    {
+        if (_previewMinimums.Count == previewMinimums.Count &&
+            previewMinimums.All(pair => _previewMinimums.TryGetValue(pair.Key, out var height) && height == pair.Value))
+            return;
+        _previewMinimums.Clear();
+        foreach (var (card, height) in previewMinimums) _previewMinimums.Add(card, height);
+        InvalidateMeasure();
+    }
+
     public bool Offers(UIElement element) => _offered.Contains(element);
 
     public void SetMinimumCardHeight(double height)
@@ -92,7 +103,7 @@ internal sealed class NativeHistoryStack : Panel
         foreach (UIElement card in InternalChildren)
         {
             var remaining = availableSize.Height - used;
-            if (remaining < _minimumCardHeight) break;
+            if (remaining < Math.Max(_minimumCardHeight, _previewMinimums.GetValueOrDefault(card))) break;
             card.Measure(new Size(availableSize.Width, remaining));
             var height = Math.Min(remaining, card.DesiredSize.Height);
             if (height <= 0) break;

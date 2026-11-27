@@ -50,6 +50,8 @@ var tests = new (string Id, string Name, Action Run)[]
     ("Core.DesktopUiChecks.HistoryReadGestures", "History activation and effective navigation clear only laid-out answer IDs", DesktopUiChecks.HistoryReadGestures),
     ("Core.DesktopUiChecks.Preferences", "Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
     ("Core.DesktopUiChecks.CheckpointIdentity", "Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
+    ("Core.HistoryPresentationChecks.RecentRange", "Manual collapse admits more recent cards without automatic collapse feeding back", HistoryPresentationChecks.RecentRange),
+    ("Core.HistoryPresentationChecks.PreviewPreferences", "History preview lines persist and invalid values use the default", HistoryPresentationChecks.PreviewPreferences),
     ("Core.ConversationUiChecks.DraftHeightAndLosslessPages", "Long bubble draft grows, then pages losslessly within chrome and DPI budgets", ConversationUiChecks.DraftHeightAndLosslessPages),
     ("Core.TerminalMaskChecks.Run", "Terminal mask distinguishes fixed-grid crop from raster mismatch", TerminalMaskChecks.Run),
     ("Core.ConversationUiChecks.BubbleBodyAndFinalLine", "Bubble chrome, device-pixel budgets and final-line page boundaries", ConversationUiChecks.BubbleBodyAndFinalLine),
