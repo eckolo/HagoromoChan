@@ -6,7 +6,6 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="../../src/HagoromoChan.Desktop/App.xaml" LogicalName="ProductionApp.xaml" />
     <ProjectReference Include="../../src/HagoromoChan.Desktop/HagoromoChan.Desktop.csproj" />
   </ItemGroup>
 </Project>

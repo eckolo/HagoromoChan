@@ -2,7 +2,7 @@ namespace HagoromoChan.Desktop;
 
 internal enum HistoryReadGesture { Passive, Activation, Navigation }
 
-internal readonly record struct HistoryPageIdentity(string Id, int Start, int Length);
+internal readonly record struct HistoryPageIdentity(string Id, int FirstBand, int BandCount);
 
 internal static class HistoryReadPolicy
 {

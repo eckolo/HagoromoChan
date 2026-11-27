@@ -12,4 +12,7 @@
     <Compile Include="../../src/HagoromoChan.Desktop/HistoryReadPolicy.cs" Link="Desktop/HistoryReadPolicy.cs" />
     <Compile Include="../../src/HagoromoChan.Desktop/TextPaging.cs" Link="Desktop/TextPaging.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../HagoromoChan.WindowsLayoutChecks/TerminalMask.cs" Link="TerminalMask.cs" />
+  </ItemGroup>
 </Project>

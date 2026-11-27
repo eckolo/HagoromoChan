@@ -89,6 +89,53 @@ internal static class ConversationUiChecks
         }
     }
 
+    public static void DraftHeightAndLosslessPages()
+    {
+        // Destination has a higher DPI than the owning mascot, and the HWND
+        // client is shorter than the requested window. The old owner-scale
+        // budget is too generous for this actual client.
+        const double ownerScale = 1.25, destinationScale = 1.75, navHeight = 44;
+        const int requestedHeight = 451, actualHeight = 367;
+        var destination = BubbleLayout.ClientDip(requestedHeight, actualHeight, destinationScale);
+        var budget = BubbleLayout.ConversationBodyBudget(destination, navHeight, destinationScale);
+        var oldBudget = requestedHeight / ownerScale - navHeight - 2;
+        True(oldBudget * destinationScale > actualHeight, "Exercise prior unit/viewport mismatch.");
+        True((budget + BubbleLayout.RoundUp(navHeight, destinationScale) + 2) * destinationScale
+            <= actualHeight + 1e-8, "Content, navigation and safety insets stay inside physical client pixels.");
+        Equal(requestedHeight / destinationScale,
+            BubbleLayout.ClientDip(requestedHeight, requestedHeight + 200, destinationScale));
+        Equal(0d, BubbleLayout.ConversationBodyBudget(20, navHeight, destinationScale));
+
+        var text = string.Join("\r\n", Enumerable.Range(1, 10).Select(i =>
+            $"{i:D2} 合成の検証文です。日本語とABC123を混ぜた段落を折り返して表示します。次の行に続く文章を最後まで読めるか確認します。"))
+            + "\r\n最終行を含む。";
+        True(text.Length is >= 550 and <= 750, "Exercise a realistic long draft without private text.");
+        foreach (var scale in new[] { 1.0, 1.25, 1.5, 1.75, 2.0 })
+        {
+            const double minimum = 44, feedback = 29;
+            foreach (var side in Enum.GetValues<OverlaySide>())
+            {
+                var chrome = BubbleLayout.Vertical(side) ? 84 : 72;
+                var reserve = BubbleLayout.HistoryChrome(side, 6, scale) + minimum + 1 / scale;
+                double Measure(string value) => BubbleLayout.HistoryBodyHeight(8 +
+                    value.Split('\n').Sum(line => (double)Math.Ceiling(Math.Max(1, line.Length) / 28.0) * 20), scale);
+                var high = BubbleLayout.ComposerBodyBudget(960, chrome, feedback, minimum, reserve, scale);
+                var low = BubbleLayout.ComposerBodyBudget(240, chrome, feedback, minimum, reserve, scale);
+
+                Equal(1, TextPaging.Split(text, high, Measure).Count);
+                True(high + chrome + feedback + reserve <= 960 + 1e-8,
+                    "A fitting draft can use more than a fixed third and leave a readable history slot.");
+                var pages = TextPaging.Split(text, low, Measure);
+                True(pages.Count > 1 && pages.All(page => page.Height + chrome + feedback <= 240 + 1e-8),
+                    "Constrained draft pages fit their work area, including chrome and warnings.");
+                Equal(text, string.Concat(pages.Select(page => page.Read(text))));
+                True(BubbleLayout.ComposerBodyBudget(chrome + feedback + minimum + 2, chrome,
+                    feedback, minimum, reserve, scale) >= minimum,
+                    "Keep one editable line if both surfaces cannot fit together.");
+            }
+        }
+    }
+
     public static void StackNavigation()
     {
         int Count(int message) => message == 1 ? 3 : 1;

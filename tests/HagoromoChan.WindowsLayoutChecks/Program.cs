@@ -1,97 +1,530 @@
 using System.Reflection;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Automation.Text;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using HagoromoChan.LayoutChecks;
 using System.Windows.Media;
-using System.Windows.Markup;
-using System.Xml.Linq;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using HagoromoChan.Contracts;
 using HagoromoChan.Desktop;
 
 internal static class Program
 {
-    // Render the app's real history cards with synthetic text; do not start the Relay,
-    // load user data, or depend on the current user's SSP instance.
     [STAThread]
     public static void Main()
     {
-        // Load the original styles, not an App instance: the latter queues
-        // production startup on this dispatcher and can open real data.
+        // A real Desktop App schedules OnStartup on the dispatcher. The
+        // Loaded retry below pumps that dispatcher; production startup here
+        // would open the user's data directory and take its instance lock.
+        // Load the same styles without ever constructing a production App.
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        using var xaml = typeof(Program).Assembly.GetManifestResourceStream("ProductionApp.xaml")
-            ?? throw new InvalidOperationException("Production styles were not embedded.");
-        var source = XElement.Load(xaml);
-        var ns = source.Name.Namespace;
-        var styles = new XElement(ns + "ResourceDictionary",
-            source.Attributes().Where(attribute => attribute.IsNamespaceDeclaration),
-            source.Element(ns + "Application.Resources")!.Elements());
-        app.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(styles.ToString()));
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/HagoromoChan.Desktop;component/DesktopResources.xaml", UriKind.Relative)
+        });
         var type = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
-        var owner = new Window();
+        var owner = new Window { WindowStartupLocation = WindowStartupLocation.Manual, Width = 132, Height = 140, ShowActivated = false };
         var panels = Activator.CreateInstance(type, owner, (Action)(() => { }),
             (Action)(() => { }), (Action<IReadOnlyList<string>>)(_ => { }), (Action)(() => { }))!;
-        object? Invoke(string name, params object[] args) => type.GetMethod(name,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.Invoke(panels, args);
+        const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        object? Invoke(string name, params object[] args) => type.GetMethod(name, Flags)!.Invoke(panels, args);
         var window = (Window)type.GetProperty("Conversation")!.GetValue(panels)!;
         var root = (FrameworkElement)window.Content;
-        window.Width = root.Width = 340;
-        window.Height = 400;
-        window.Show();
+        var stack = (Panel)type.GetField("_historyStack", Flags)!.GetValue(panels)!;
+        var editor = (TextBox)type.GetProperty("MessageInput")!.GetValue(panels)!;
+        var desktop = type.Assembly.GetType("HagoromoChan.Desktop.NativeDesktop", true)!;
+        var sideType = type.Assembly.GetType("HagoromoChan.Desktop.OverlaySide", true)!;
+        var layout = type.Assembly.GetType("HagoromoChan.Desktop.BubbleLayout", true)!;
+        Phase("owner.Show");
+        owner.Show();
+        Phase("owner.Show completed");
         try
         {
-            var text = string.Concat(Enumerable.Repeat("折り返し確認ABC123日本語", 160)) + "最後です。";
-            Invoke("UpdateHistory", new[] { new ChatMessage(1, "synthetic", "assistant", text, null,
-                DateTimeOffset.UnixEpoch) }, Array.Empty<string>());
-            Invoke("ToggleHistory");
-            var overlaySide = type.Assembly.GetType("HagoromoChan.Desktop.OverlaySide", true)!;
-            var dpi = VisualTreeHelper.GetDpi(root);
-            var scale = dpi.DpiScaleX;
-            var layout = type.Assembly.GetType("HagoromoChan.Desktop.BubbleLayout", true)!;
-            var width = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [root.Width, scale])!;
-            var stack = (StackPanel)type.GetField("_historyStack", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(panels)!;
-            var anchor = type.GetMethod("SetAnchor", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            double? frameX = null;
+            var area = desktop.GetMethod("WorkArea", [typeof(Window)])!.Invoke(null, [owner])!;
+            int Px(object rect, string name) => (int)rect.GetType().GetProperty(name)!.GetValue(rect)!;
+            var edge = Activator.CreateInstance(area.GetType(), [
+                Px(area, "Right") - 136, Px(area, "Bottom") - 144, 132, 140])!;
+            desktop.GetMethod("SetBounds")!.Invoke(null, [owner, edge]);
+            Phase("panels.Attach");
+            Invoke("Attach");
+            Phase("panels.Attach completed");
+            void Layout(string stage)
+            {
+                Phase(stage + ": UpdateLayout");
+                window.UpdateLayout();
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                window.UpdateLayout();
+                Phase(stage + ": layout settled");
+            }
+            var topic = string.Join("\r\n", Enumerable.Range(1, 10).Select(i =>
+                $"{i:D2} 合成の検証文です。日本語とABC123を混ぜた段落を折り返して表示します。次の行に続く文章を最後まで読めるか確認します。"))
+                + "\r\n最終行：語😀 gypqç";
+            Require(topic.Length is >= 550 and <= 750, "Keep the production fixture near 600 characters.");
+            var longText = topic + "\r\n" + string.Concat(Enumerable.Repeat("ABC123折り返し😀", 350)) + "\r\n末尾gypq語\r\n";
+            Invoke("UpdateHistory", new[]
+            {
+                new ChatMessage(1, "topic-user", "user", topic, null, DateTimeOffset.UnixEpoch),
+                new ChatMessage(2, "topic-assistant", "assistant", topic, "topic-user", DateTimeOffset.UnixEpoch),
+                new ChatMessage(3, "long", "assistant", longText, "topic-user", DateTimeOffset.UnixEpoch)
+            }, Array.Empty<string>());
+
+            (DockPanel Card, Border Frame, TextBox Body) Active()
+            {
+                Require(stack.Children.Count > 0, "Production history card disappeared.");
+                var card = (DockPanel)stack.Children[0];
+                var frame = (Border)card.Children[1];
+                return (card, frame, (TextBox)((DockPanel)frame.Child).Children[1]);
+            }
+            void ExerciseNativeTextHit(TextBox box)
+            {
+                // The production-shaped, attached read-only TextBox must still
+                // support point-to-text and selection. UI Automation invokes
+                // native hit-testing without moving the operator's pointer.
+                var peer = new TextBoxAutomationPeer(box);
+                var provider = peer.GetPattern(PatternInterface.Text) as ITextProvider;
+                Require(provider is not null, "The retained history body lost its native text provider.");
+                Phase("history UIA RangeFromPoint");
+                var pixel = box.PointToScreen(new Point(box.ActualWidth / 4, box.ActualHeight / 3));
+                var hit = provider!.RangeFromPoint(pixel);
+                Require(hit is not null, "The native history TextBox cannot hit-test its live attached viewport.");
+                hit!.ExpandToEnclosingUnit(TextUnit.Character);
+                hit.Select();
+                Require(box.SelectionLength > 0, "Point-to-text did not select content in the retained TextBox.");
+                var emoji = box.Text.IndexOf("😀", StringComparison.Ordinal);
+                Require(emoji >= 0, "The original Unicode fixture lost its emoji.");
+                var selectionStart = box.SelectionStart;
+                var selectionLength = box.SelectionLength;
+                box.Select(emoji, "😀".Length);
+                Require(box.SelectedText == "😀", "The live native control did not retain the original emoji for selection/copy.");
+                box.Select(selectionStart, selectionLength);
+                Phase("history UIA selection completed");
+            }
+            void InsideClient(FrameworkElement element)
+            {
+                var (nativeWidth, nativeHeight) = ((int, int))desktop.GetMethod("ClientSize")!.Invoke(null, [window])!;
+                var scale = VisualTreeHelper.GetDpi(root).DpiScaleX;
+                var point = element.TranslatePoint(new Point(0, 0), root);
+                Require(point.X >= -1 / scale && point.Y >= -1 / scale &&
+                    (point.X + element.ActualWidth) * scale <= nativeWidth + 1 &&
+                    (point.Y + element.ActualHeight) * scale <= nativeHeight + 1,
+                    "A production bubble escapes the native HWND client.");
+            }
+
+            foreach (var id in new[] { "topic-user", "topic-assistant" })
+            {
+                Phase("ShowMessage " + id);
+                Invoke("ShowMessage", id);
+                Layout(id);
+                var bounds = desktop.GetMethod("Bounds")!.Invoke(null, [window])!;
+                Require(Px(bounds, "X") >= Px(area, "X") && Px(bounds, "Y") >= Px(area, "Y") &&
+                    Px(bounds, "Right") <= Px(area, "Right") && Px(bounds, "Bottom") <= Px(area, "Bottom"),
+                    "The native HWND escaped the work area.");
+                var (card, _, body) = Active();
+                InsideClient(card);
+                Require(body.Text == topic && body.IsReadOnly, "The production fixture changed its full source.");
+                if (id == "topic-user")
+                {
+                    // Both characters belong to the very same logical paragraph.
+                    // Extent/line count alone would pass because other paragraphs
+                    // already contain explicit CRLFs. The Japanese paragraph is
+                    // intentionally wider than the maximally sized body at the
+                    // production font; do not artificially narrow this window.
+                    // Compare actual caret rows, not a nominal pixel estimate.
+                    Phase("Native soft-wrap in the first visible paragraph");
+                    var paragraphEnd = body.Text.IndexOf('\r');
+                    Require(paragraphEnd > 1 && !body.Text[..paragraphEnd].Contains('\n'),
+                        "The soft-wrap fixture needs one uninterrupted first paragraph.");
+                    Require(body.VerticalOffset == 0, "The first paragraph is not at the viewport origin.");
+                    var presenter = FindPresenter(body);
+                    Require(presenter is not null, "The native text viewport is missing.");
+                    var viewport = presenter!.TransformToAncestor(body).TransformBounds(new Rect(new Point(), presenter.RenderSize));
+                    var firstRect = body.GetRectFromCharacterIndex(0, trailingEdge: false);
+                    var lastRect = body.GetRectFromCharacterIndex(paragraphEnd - 1, trailingEdge: true);
+                    Require(!firstRect.IsEmpty && !lastRect.IsEmpty && firstRect.Top >= viewport.Top &&
+                        lastRect.Bottom <= viewport.Bottom && lastRect.Top > firstRect.Top,
+                        $"Soft wrap not visible: first={firstRect}, last={lastRect}, viewport={viewport}.");
+                    Phase("Native soft-wrap completed");
+                }
+                body.ScrollToEnd();
+                Layout(id + " native end");
+                CheckTailInk(window, body, "gypqç", verifyNegativeControl: id == "topic-user");
+                ExerciseNativeTextHit(body);
+            }
+
+            Phase("ShowMessage long");
+            Invoke("ShowMessage", "long");
+            Layout("long initial");
+            var (_, _, arrowBody) = Active();
+            Require(arrowBody.Text == longText && arrowBody.ExtentHeight > arrowBody.ViewportHeight,
+                "Long fixture did not require a real native scroll viewport.");
+            var topBefore = arrowBody.VerticalOffset;
+            Invoke("MoveHistory", 1);
+            Layout("long down");
+            Require(ReferenceEquals(Active().Body, arrowBody) && arrowBody.VerticalOffset > topBefore,
+                "Production down arrow advanced the wrong message instead of scrolling its native body.");
+            Invoke("MoveHistory", -1);
+            Layout("long up");
+            Require(Math.Abs(arrowBody.VerticalOffset - topBefore) < .01, "Native up/down was not reversible.");
+
+            var scale = VisualTreeHelper.GetDpi(root).DpiScaleX;
+            var width = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [root.ActualWidth, scale])!;
+            double? x = null;
             foreach (var side in new[] { "Right", "Left" })
             {
-                var rebuilt = new System.Text.StringBuilder();
-                for (var offset = 0; offset < text.Length;)
-                {
-                    anchor.Invoke(panels, ["synthetic", offset]);
-                    Invoke("RenderHistory", width, 250.0, Enum.Parse(overlaySide, side), scale);
-                    window.UpdateLayout();
-                    Require(stack.Children.Count != 0, "History page is missing.");
-                    var card = (DockPanel)stack.Children[0];
-                    var frame = (Border)card.Children[1];
-                    var body = (TextBox)((StackPanel)frame.Child).Children[1];
-                    var x = frame.TranslatePoint(new Point(0, 0), root).X;
-                    frameX ??= x;
-                    Require(Math.Abs(x - frameX.Value) <= 1 / scale, "Text frame shifts when its ornament moves.");
-                    Require(body.Text.Length > 0 && body.LineCount > 0, "Rendered page is empty.");
-                    if (offset == 0)
-                        Require(body.LineCount > 1, "Unbroken history text failed to wrap at the window edge.");
-                    var last = body.GetRectFromCharacterIndex(body.Text.Length - 1, trailingEdge: true);
-                    if (!(!last.IsEmpty && last.Right <= body.ActualWidth + 1 / scale &&
-                        last.Bottom <= body.ActualHeight + 1 / scale))
-                    {
-                        var rect = last.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                        var context = FormattableString.Invariant($"side={side}; offset={offset}; pageLength={body.Text.Length}; dpi={dpi.PixelsPerInchX:G17}x{dpi.PixelsPerInchY:G17}; scale={dpi.DpiScaleX:G17}x{dpi.DpiScaleY:G17}; rect={rect}; actual={body.ActualWidth:G17}x{body.ActualHeight:G17} DIP; limits right={body.ActualWidth + 1 / scale:G17} bottom={body.ActualHeight + 1 / scale:G17}");
-                        var message = $"Last character falls outside its page. {context}";
-                        Console.WriteLine($"TEST-FAIL WindowsLayout.RenderedHistory: {message}");
-                        Console.Out.Flush();
-                        throw new InvalidOperationException(message);
-                    }
-                    rebuilt.Append(body.Text);
-                    offset += body.Text.Length;
-                }
-                Require(rebuilt.ToString() == text, "Paginated history lost or repeated text.");
+                Invoke("RenderHistory", width, (double)root.ActualHeight, Enum.Parse(sideType, side), scale);
+                Layout("Bubble tail side: " + side);
+                var (_, frame, body) = Active();
+                var origin = frame.TranslatePoint(new Point(0, 0), root).X;
+                x ??= origin;
+                Require(Math.Abs(origin - x.Value) <= 1 / scale, "The bubble frame moves when only the tail switches sides.");
+                Require(ReferenceEquals(body, arrowBody), "The bubble frame change recreated the retained native body.");
             }
-            Console.WriteLine("PASS M22 rendered WPF history wraps and pages without a horizontal frame shift");
+            // Continue through the real arrow handler with no selection: this
+            // is the failing production path, not merely a direct API jump.
+            RequirePhysicalScrollOwner(arrowBody, "History");
+            var newer = (RepeatButton)type.GetField("_newer", Flags)!.GetValue(panels)!;
+            var steps = 0;
+            while (arrowBody.ExtentHeight - arrowBody.ViewportHeight - arrowBody.VerticalOffset > .01)
+            {
+                Require(++steps <= longText.Length && newer.IsEnabled && arrowBody.SelectionLength == 0,
+                    "The long, unselected history did not advance to its end.");
+                var before = arrowBody.VerticalOffset;
+                Phase($"long unselected arrow {steps}");
+                newer.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, newer));
+                Layout($"long unselected arrow {steps}");
+                Require(ReferenceEquals(Active().Body, arrowBody) && arrowBody.VerticalOffset > before,
+                    "The actual arrow must advance the same native history viewport.");
+            }
+            Require(steps > 0, "The long history did not exercise the actual arrow.");
+            Phase($"long unselected arrow reached the native end in {steps} steps");
+            CheckTailInk(window, arrowBody, "末尾gypq語", verifyNegativeControl: false);
+            arrowBody.ScrollToHome();
+            Layout("return to long origin before selection");
+            arrowBody.Select(0, 3);
+            arrowBody.ScrollToEnd();
+            Layout("long terminal");
+            var (longCard, _, retainedBody) = Active();
+            InsideClient(longCard);
+            Require(ReferenceEquals(arrowBody, retainedBody) && retainedBody.SelectionLength == 3 &&
+                retainedBody.Text == longText && retainedBody.VerticalOffset > 0 &&
+                Math.Abs(retainedBody.VerticalOffset - (retainedBody.ExtentHeight - retainedBody.ViewportHeight)) <= 1 / scale,
+                "Native terminal scrolling lost the original Unicode text, selection or final extent.");
+            retainedBody.Select(0, 0);
+            CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: true);
+            ExerciseNativeTextHit(retainedBody);
+
+            Phase("history: constrained viewport");
+            var room = root.ActualHeight;
+            root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, 220.0]);
+            Layout("long constrained client");
+            Require(ReferenceEquals(Active().Body, retainedBody) && retainedBody.ViewportHeight > 0 &&
+                retainedBody.ViewportHeight < retainedBody.ExtentHeight && root.ActualHeight <= 220.0 + 1 / scale,
+                "The smaller layout did not retain the same bounded native document.");
+            retainedBody.ScrollToEnd();
+            Layout("long constrained terminal");
+            InsideClient(Active().Card);
+            CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: false);
+            root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, room]);
+            Layout("restore native client");
+
+            retainedBody.ScrollToHome();
+            Layout("history older initial cursor");
+            Invoke("MoveHistory", -1);
+            Layout("history older document");
+            var previous = Active().Body;
+            Require(previous.Text == topic &&
+                Math.Abs(previous.VerticalOffset - Math.Max(0, previous.ExtentHeight - previous.ViewportHeight)) <= 1 / scale,
+                "Crossing into the older history item did not land at its native end.");
+            Invoke("MoveHistory", 1);
+            Layout("history newer document");
+            Require(Active().Body.Text == longText && Active().Body.VerticalOffset <= 1 / scale,
+                "Crossing into the newer history item did not land at its native beginning.");
+
+            Phase("SetDraftText and OpenBoth");
+            Invoke("SetDraftText", longText);
+            Invoke("OpenBoth");
+            Layout("draft initial");
+            var composer = (FrameworkElement?)type.GetField("_composerBubble", Flags)!.GetValue(panels);
+            Require(composer?.IsVisible == true, "Live composer missing.");
+            InsideClient(composer!);
+            RequirePhysicalScrollOwner(editor, "Draft");
+            Require(editor.Text == longText && editor.VerticalScrollBarVisibility == ScrollBarVisibility.Hidden,
+                "Composer no longer contains the full original text or gained a width-changing scrollbar.");
+            Phase("Draft: move the caret and scroll to the end");
+            editor.CaretIndex = editor.Text.Length;
+            editor.ScrollToEnd();
+            Layout("draft terminal");
+            CheckDraftEnd(editor);
+            Phase("Draft: edit and undo at the end");
+            const string addition = "追記😀";
+            editor.SelectedText = addition;
+            editor.CaretIndex = editor.Text.Length;
+            Layout("draft after editing");
+            Require(editor.Text == longText + addition &&
+                Equals(type.GetProperty("DraftText")!.GetValue(panels), editor.Text),
+                "The native edit did not preserve the full draft and notify the application.");
+            CheckDraftEnd(editor);
+            editor.Undo();
+            Layout("draft after undo");
+            Require(editor.Text == longText && Equals(type.GetProperty("DraftText")!.GetValue(panels), longText),
+                "Undo did not restore the full draft.");
+            Console.WriteLine("PASS conversation layout: history rendering, navigation and editable draft");
         }
         finally
         {
             Invoke("PrepareForShutdown");
-            window.Close();
+            if (window.IsLoaded) window.Close();
+            if (owner.IsVisible) owner.Close();
         }
+    }
+
+    private static void RequirePhysicalScrollOwner(TextBox body, string surface)
+    {
+        var presenter = FindPresenter(body);
+        Require(presenter is { CanContentScroll: false, ScrollOwner: not null } &&
+            presenter.ViewportHeight == body.ViewportHeight && presenter.ExtentHeight == body.ExtentHeight,
+            $"{surface}: the native presenter does not own the scroll range.");
+    }
+
+    private static void CheckDraftEnd(TextBox editor)
+    {
+        var presenter = FindPresenter(editor)!;
+        var view = presenter.TransformToAncestor(editor).TransformBounds(new Rect(new Point(), presenter.RenderSize));
+        var end = editor.GetRectFromCharacterIndex(editor.Text.Length, trailingEdge: true);
+        var pixel = 1 / VisualTreeHelper.GetDpi(editor).DpiScaleY;
+        Require(editor.CaretIndex == editor.Text.Length && editor.ExtentHeight > editor.ViewportHeight &&
+            editor.VerticalOffset > 0 && !end.IsEmpty && end.Top >= view.Top - pixel &&
+            end.Bottom <= view.Bottom + pixel,
+            $"The final draft caret is not visible: caret={end}, viewport={view}, offset={editor.VerticalOffset}.");
+    }
+
+    private static void Phase(string phase)
+    {
+        Console.WriteLine("TRACE conversation layout: " + phase);
+        Console.Out.Flush();
+    }
+
+    private static void CheckTailInk(Window host, TextBox body, string finalLine, bool verifyNegativeControl)
+    {
+        Phase("terminal viewport geometry");
+        var root = (FrameworkElement)host.Content;
+        var client = CaptureClientRoot(root);
+        var dpi = VisualTreeHelper.GetDpi(client);
+        Phase($"terminal live coordinates: content={root.RenderSize}, HWND root={client.RenderSize}, content origin in HWND={root.TranslatePoint(new Point(), client)}");
+        var terminal = body.Text.LastIndexOf(finalLine, StringComparison.Ordinal);
+        Require(terminal > 0 && body.Text[(terminal + finalLine.Length)..].Trim('\r', '\n').Length == 0,
+            "The synthetic marker is not the last nonblank line.");
+        Require(body.ViewportHeight > 0 && Math.Abs(body.VerticalOffset -
+            Math.Max(0, body.ExtentHeight - body.ViewportHeight)) <= 1 / dpi.DpiScaleY,
+            "Production text did not reach the native terminal scroll offset.");
+
+        var viewport = FindPresenter(body);
+        Require(viewport is { ActualWidth: > 0, ActualHeight: > 0 }, "Production native scroll viewport not found.");
+        var view = viewport!.TransformToAncestor(client).TransformBounds(
+            new Rect(new Point(), viewport.RenderSize));
+        var liveAnchor = Anchor(body, client, terminal);
+        var end = Anchor(body, client, terminal + finalLine.Length - 1);
+        Require(Math.Abs(liveAnchor.Y - end.Y) < 1 / dpi.DpiScaleY,
+            "The marker wrapped; a one-line raster reference is not comparable.");
+        Require(liveAnchor.Y >= view.Top - 1 / dpi.DpiScaleY && liveAnchor.Y < view.Bottom,
+            "The native hit geometry cannot place the marker within its scroll viewport.");
+        Phase($"terminal viewport settled: viewport={view}, anchor={liveAnchor}, dpi={dpi.PixelsPerInchY}");
+
+        // Use the very same HistoryBodyBox factory and transparent HWND mode. The
+        // isolated reference deliberately has no lower clip around the marker.
+        // A chromatic foreground isolates the monochrome suffix from paper,
+        // borders and header; color emoji is checked separately in native
+        // selection, not claimed by this foreground-based raster.
+        var factory = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
+        var reference = (TextBox)factory.GetMethod("HistoryBodyBox", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!;
+        reference.Text = finalLine;
+        reference.Width = reference.MaxWidth = body.ActualWidth;
+        var tint = new SolidColorBrush(Color.FromRgb(255, 0, 255));
+        var old = body.Foreground;
+        var referenceRoot = new Grid { ClipToBounds = true, Background = Brushes.Transparent };
+        referenceRoot.Children.Add(reference);
+        var p = root.PointToScreen(new Point());
+        var window = new Window
+        {
+            AllowsTransparency = host.AllowsTransparency, Background = host.Background,
+            Left = p.X / dpi.DpiScaleX, Top = p.Y / dpi.DpiScaleY,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Width = body.ActualWidth, Height = 100, ShowActivated = false, ShowInTaskbar = false,
+            WindowStyle = host.WindowStyle, ResizeMode = host.ResizeMode,
+            UseLayoutRounding = host.UseLayoutRounding, FontFamily = host.FontFamily, FontSize = host.FontSize,
+            Content = referenceRoot
+        };
+        TextOptions.SetTextFormattingMode(reference, TextOptions.GetTextFormattingMode(body));
+        TextOptions.SetTextRenderingMode(reference, TextOptions.GetTextRenderingMode(body));
+        TextOptions.SetTextHintingMode(reference, TextOptions.GetTextHintingMode(body));
+        try
+        {
+            Phase("terminal same-surface reference Show");
+            window.Show();
+            window.UpdateLayout();
+            host.UpdateLayout();
+            var referenceClient = CaptureClientRoot(referenceRoot);
+            var referenceDpi = VisualTreeHelper.GetDpi(referenceClient);
+            Phase($"terminal reference coordinates: content={referenceRoot.RenderSize}, HWND root={referenceClient.RenderSize}, content origin in HWND={referenceRoot.TranslatePoint(new Point(), referenceClient)}");
+            Require(referenceDpi.DpiScaleX == dpi.DpiScaleX && referenceDpi.DpiScaleY == dpi.DpiScaleY,
+                "Marker reference is on a different physical pixel scale.");
+            var currentAnchor = Anchor(body, client, terminal);
+            var currentView = viewport.TransformToAncestor(client).TransformBounds(new Rect(new Point(), viewport.RenderSize));
+            Require(currentAnchor == liveAnchor && currentView == view,
+                $"Live coordinate registration changed while opening the reference: [{liveAnchor}, {view}] -> [{currentAnchor}, {currentView}].");
+            var referenceAnchor = Anchor(reference, referenceClient, 0);
+            var referenceEnd = Anchor(reference, referenceClient, finalLine.Length - 1);
+            Require(Math.Abs(referenceAnchor.Y - referenceEnd.Y) < 1 / dpi.DpiScaleY &&
+                Math.Abs((end.X - liveAnchor.X) - (referenceEnd.X - referenceAnchor.X)) < 1 / dpi.DpiScaleX,
+                "Production marker and reference do not share single-line metrics.");
+            // Both captures share a caret-relative grid and retain the live
+            // anchor's fractional device-pixel phase; only the reference is
+            // translated fractionally. Actual uses its ancestor clips intact.
+            const int leftGuard = 4, topGuard = 4;
+            var x0 = (int)Math.Floor(liveAnchor.X * dpi.DpiScaleX) - leftGuard;
+            var y0 = (int)Math.Floor(liveAnchor.Y * dpi.DpiScaleY) - topGuard;
+            var w = (int)Math.Ceiling((end.X - liveAnchor.X + 30) * dpi.DpiScaleX) + leftGuard;
+            var h = (int)Math.Ceiling(body.FontSize * 1.65 * dpi.DpiScaleY) + topGuard;
+            Phase("terminal registered pixel comparison");
+            var referenceX = x0 / dpi.DpiScaleX - liveAnchor.X + referenceAnchor.X;
+            var referenceY = y0 / dpi.DpiScaleY - liveAnchor.Y + referenceAnchor.Y;
+            Phase($"terminal capture origins in HWND: live=({x0 / dpi.DpiScaleX:F4},{y0 / dpi.DpiScaleY:F4}), reference=({referenceX:F4},{referenceY:F4}), pixels={w}x{h}");
+            var expected = Capture(referenceClient, reference, tint, referenceX, referenceY, w, h, dpi);
+            var actual = Capture(client, body, tint, x0 / dpi.DpiScaleX, y0 / dpi.DpiScaleY, w, h, dpi);
+            // The original fixture has other lines above the marker. Only
+            // ignore rows *above* its independently determined first ink;
+            // never ignore a missing or extra bottom row.
+            var first = Array.FindIndex(expected, pixel => pixel != 0);
+            Require(first >= 0, "The aligned reference contains no marker pixels.");
+            Array.Clear(actual, 0, first / w * w);
+            var verdict = TerminalMask.Compare(expected, actual, w, out var expectedLast, out var actualLast);
+            Require(expectedLast >= topGuard && expectedLast < h - 1,
+                "The reference marker has no complete painted tail inside the comparison grid.");
+            if (verifyNegativeControl)
+            {
+                // Perform an actual WPF ancestor clip and capture again, on
+                // the same registered pixel grid. A synthetic boolean crop
+                // alone would not exercise the brush/raster/clip pipeline.
+                Phase("terminal reference: physical one-row ancestor clip");
+                var cutoffInClient = new Point(referenceX, referenceY + expectedLast / dpi.DpiScaleY);
+                var cutoffPoint = referenceClient.TranslatePoint(cutoffInClient, referenceRoot);
+                var cutoff = cutoffPoint.Y;
+                var roundTrip = referenceRoot.TranslatePoint(cutoffPoint, referenceClient);
+                Require(Math.Abs(roundTrip.Y - cutoffInClient.Y) < 1e-6,
+                    "The reference clip must round-trip to the original physical row.");
+                Require(cutoff > 0 && cutoff < referenceRoot.ActualHeight,
+                    "The reference clip boundary is outside its layout.");
+                var originalClip = referenceRoot.Clip;
+                byte[] clipped;
+                try
+                {
+                    referenceRoot.Clip = new RectangleGeometry(new Rect(0, 0, referenceRoot.ActualWidth, cutoff));
+                    clipped = Capture(referenceClient, reference, tint, referenceX, referenceY, w, h, dpi);
+                }
+                finally { referenceRoot.Clip = originalClip; }
+                var clipVerdict = TerminalMask.Compare(expected, clipped, w, out _, out var clippedLast);
+                var expectedOneRowClip = expected.ToArray();
+                Array.Clear(expectedOneRowClip, expectedLast * w, w);
+                Require(clipVerdict == TerminalMaskResult.BottomRowsMissing && clipped.AsSpan().SequenceEqual(expectedOneRowClip),
+                    $"One-device-pixel ancestor clip was not isolated: ref={expectedLast}, clipped={clippedLast}, verdict={clipVerdict}.");
+                Phase("terminal reference: physical one-row ancestor clip detected");
+            }
+            var lastVisible = view.Bottom * dpi.DpiScaleY - y0;
+            Phase($"terminal mask={verdict}: ref={expectedLast}, live={actualLast}, viewport-bottom={lastVisible:F2}");
+            var description = verdict == TerminalMaskResult.BottomRowsMissing
+                ? (Math.Abs(lastVisible - (actualLast + 1)) <= 1
+                    ? "lower viewport edge agrees with missing suffix"
+                    : "matching prefix loses bottom rows away from reported viewport edge")
+                : verdict == TerminalMaskResult.OtherMismatch
+                    ? "different aligned shape; raster/environment mismatch or other drawing fault, not established clipping"
+                    : "aligned mask matched";
+            Require(verdict == TerminalMaskResult.Match,
+                $"Terminal ink {verdict}: ref={expectedLast}, live={actualLast}, viewport-bottom={lastVisible:F2}; {description}.");
+        }
+        finally
+        {
+            window.Close();
+            body.Foreground = old;
+        }
+        Phase("terminal registered pixels complete");
+    }
+
+    private static FrameworkElement CaptureClientRoot(FrameworkElement content)
+    {
+        // VisualBrush absolute viewboxes are in the painted visual's outer
+        // space. Sampling the panel's inner coordinates omitted its bottom-
+        // aligned offset when the test shrank the panel within its HWND.
+        var client = PresentationSource.FromVisual(content)?.RootVisual as FrameworkElement
+            ?? throw new InvalidOperationException("The capture content is not in a WPF HWND.");
+        Require(VisualTreeHelper.GetParent(client) is null &&
+            VisualTreeHelper.GetOffset(client) == new Vector() &&
+            (VisualTreeHelper.GetTransform(client) is null or { Value.IsIdentity: true }),
+            "The capture HWND root must use unshifted client coordinates.");
+        return client;
+    }
+
+    private static Point Anchor(TextBox box, FrameworkElement captureRoot, int index)
+    {
+        Phase($"terminal native caret request {index}");
+        var caret = box.GetRectFromCharacterIndex(index, trailingEdge: false);
+        Require(!caret.IsEmpty && double.IsFinite(caret.X) && double.IsFinite(caret.Y),
+            "Native TextBox did not return a terminal character position.");
+        return box.TranslatePoint(caret.TopLeft, captureRoot);
+    }
+
+    private static ScrollContentPresenter? FindPresenter(DependencyObject control)
+    {
+        if (control is ScrollContentPresenter viewport) return viewport;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(control); i++)
+            if (FindPresenter(VisualTreeHelper.GetChild(control, i)) is { } found)
+                return found;
+        return null;
+    }
+
+    private static byte[] Capture(FrameworkElement root, TextBox body, Brush tint,
+        double x, double y, int w, int h, DpiScale dpi)
+    {
+        // Subtract a no-ink control drawn on this exact surface, preserving
+        // clips, paper and the same subpixel grid in both capture pairs.
+        body.Foreground = Brushes.Transparent;
+        var paper = CapturePixels(root, x, y, w, h, dpi);
+        body.Foreground = tint;
+        var ink = CapturePixels(root, x, y, w, h, dpi);
+        var mask = new byte[w * h];
+        for (var i = 0; i < mask.Length; i++)
+        {
+            var j = i * 4;
+            var blue = ink[j] - paper[j];
+            var green = ink[j + 1] - paper[j + 1];
+            var red = ink[j + 2] - paper[j + 2];
+            mask[i] = Math.Min(blue, red) - green >= 42 ? (byte)1 : (byte)0;
+        }
+        return mask;
+    }
+
+    private static byte[] CapturePixels(FrameworkElement root, double x, double y, int w, int h, DpiScale dpi)
+    {
+        root.UpdateLayout();
+        var drawing = new DrawingVisual();
+        using (var dc = drawing.RenderOpen())
+        {
+            var sample = new Rect(x, y, w / dpi.DpiScaleX, h / dpi.DpiScaleY);
+            var brush = new VisualBrush(root)
+            {
+                ViewboxUnits = BrushMappingMode.Absolute, Viewbox = sample,
+                Stretch = Stretch.Fill, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top
+            };
+            dc.DrawRectangle(brush, null, new Rect(new Point(), sample.Size));
+        }
+        var bitmap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        bitmap.Render(drawing);
+        var pixels = new byte[w * h * 4];
+        bitmap.CopyPixels(pixels, w * 4, 0);
+        return pixels;
     }
 
     private static void Require(bool condition, string message)

@@ -17,20 +17,33 @@ Windowsの小窓から、既存のChatGPT Dot「羽衣ちゃん」にメッセ�
 
 M03 v2.3では透過キャラクターの常駐表示、クリック・右クリックによる会話操作、統一吹き出し、固定上下操作、独立トグル、ページ分割、位置／サイズ設定を実装しています。ホバー操作窓は廃止し、状態表示は本体近傍に配置します。ユーザーのデザイン受入・完了指示を反映した版で、最終版の残検査は [M03 実機確認手順](docs/operations/M03-verification.md) を参照してください。通信障害復旧・自動起動等は別マイルストーンです。
 
+現在の会話窓は本文に合わせて伸び、画面内に収まらない履歴や下書きは欄内をスクロールできます。履歴は欄内の端から前後の発言へ移り、入力欄では同じ下書きを末尾まで編集できます。
+
 実際の羽衣ちゃんへの接続には、利用アカウントでのカスタムMCP／イベント／書き込みツールの利用権限と、Secure MCP Tunnelの設定が必要です。イベント受領から返事までの時間、公式のDot会話での表示、書き込み時の承認動作は実アカウントで確認します。
 
-## Windowsで起動する（M08 v1.0.4）
+## Windowsで起動する
 
-Windows 11、.NET 10 SDK（開発用）、.NET 10 Desktop/ASP.NET Coreランタイム、既存の公式tunnel-client 0.0.21とhagoromoプロファイルを使用します。初回は旧手動トンネル、Desktop、Relayを正常終了してください。会話データや購読の削除は不要です。
+前提は Windows 11、.NET 10 Desktop/ASP.NET Coreランタイム、公式の `tunnel-client` 0.0.21 と既存の `hagoromo` プロファイルです。ソースからビルドする場合は .NET 10 SDK も必要です。会話データや購読の削除は不要です。
 
-初回の設定・ビルド配置（既存プロファイルとruntimeキーを使用）:
+### 初期設定・接続先の変更
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure.ps1
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
+旧手動トンネル、Desktop、Relayが動いていれば正常終了してください。既存のトンネルプロファイルを指定して、アプリが使う接続設定とランタイムキーを保存します。アプリのビルドや配置は行いません。
 
-通常起動は %LOCALAPPDATA%\HagoromoChan\app\HagoromoChan.exe の起動だけです。Start.ps1 は同じexeを起動し、ビルドしません。右クリック「終了」「再起動」は管理下の全プロセスを対象とし、「接続状態」は既存状態窓を拡張します。スタートアップは Startup.ps1 -Action Enable で明示登録し、Disable で解除します。ソース更新はgit pull --ff-only等で行った後に Update.ps1 を実行します。開発用の個別再起動や確認は Control.ps1 を使用します。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure.ps1
+```
 
-詳しい移行・更新・テスト手順は [M08実機確認手順](docs/operations/M08-verification.md) を参照してください。M08 v1.0.4はユーザーの全般的な実機動作成功報告と受入に基づき完了とし、個別未検査は実機確認手順に残します。初回以降の更新時にキーを再入力する必要はありません。
+### 初回インストール・アプリの更新
+
+初期設定が済んだら、初回は以下でビルド・配置します。以後はソースを更新してから同じコマンドで入れ替えます。接続設定に変更がなければ `Configure.ps1` の再実行やキーの再入力は不要です。配置後は通常そのまま起動します。配置だけ行う場合は `-NoStart` を付けます。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
+```
+
+### 通常起動
+
+`%LOCALAPPDATA%\HagoromoChan\app\HagoromoChan.exe` を起動します。`Start.ps1` も同じexeを起動し、ビルドはしません。起動後は右クリックの「終了」「再起動」「接続状態」が使えます。自動起動は `Startup.ps1 -Action Enable`、解除は `-Action Disable` です。移行や復旧の詳細は [Windows実機手順](docs/operations/M08-verification.md) を参照してください。
 
 個別開発起動では、従来どおり先にRelay、別ターミナルでDesktopを実行できます（管理起動と同時には実行しない）。
 
