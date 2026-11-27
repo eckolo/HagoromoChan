@@ -39,6 +39,7 @@ var tests = new (string Name, Action Run)[]
     ("Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
     ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
     ("Long bubble draft grows, then pages losslessly within chrome and DPI budgets", ConversationUiChecks.DraftHeightAndLosslessPages),
+    ("M35 terminal mask distinguishes fixed-grid crop from raster mismatch", TerminalMaskChecks.Run),
     ("M22 bubble chrome, device-pixel budgets and final-line page boundaries", ConversationUiChecks.BubbleBodyAndFinalLine),
     ("Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
     ("Conversation stack expands upward and contracts without dropping stored messages", ConversationUiChecks.StackNavigation),

@@ -4,6 +4,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Automation.Text;
 using System.Windows.Controls;
+using HagoromoChan.LayoutChecks;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -92,6 +93,13 @@ internal static class Program
                 hit!.ExpandToEnclosingUnit(TextUnit.Character);
                 hit.Select();
                 Require(box.SelectionLength > 0, "Point-to-text did not select content in the retained TextBox.");
+                var emoji = box.Text.IndexOf("😀", StringComparison.Ordinal);
+                Require(emoji >= 0, "The original Unicode fixture lost its emoji.");
+                var selectionStart = box.SelectionStart;
+                var selectionLength = box.SelectionLength;
+                box.Select(emoji, "😀".Length);
+                Require(box.SelectedText == "😀", "The live native control did not retain the original emoji for selection/copy.");
+                box.Select(selectionStart, selectionLength);
                 Phase("history UIA selection completed");
             }
             void InsideClient(FrameworkElement element)
@@ -119,7 +127,7 @@ internal static class Program
                 Require(body.Text == topic && body.IsReadOnly, "The production fixture changed its full source.");
                 body.ScrollToEnd();
                 Layout(id + " native end");
-                CheckTailInk(body, "最終行：語😀 gypqç", verifyNegativeControl: id == "topic-user");
+                CheckTailInk(window, body, "gypqç", verifyNegativeControl: id == "topic-user");
                 ExerciseNativeTextHit(body);
             }
 
@@ -161,7 +169,7 @@ internal static class Program
                 Math.Abs(retainedBody.VerticalOffset - (retainedBody.ExtentHeight - retainedBody.ViewportHeight)) <= 1 / scale,
                 "Native terminal scrolling lost the original Unicode text, selection or final extent.");
             retainedBody.Select(0, 0);
-            CheckTailInk(retainedBody, "末尾gypq語", verifyNegativeControl: true);
+            CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: true);
             ExerciseNativeTextHit(retainedBody);
 
             Phase("history: constrained viewport");
@@ -174,7 +182,7 @@ internal static class Program
             retainedBody.ScrollToEnd();
             Layout("long constrained terminal");
             InsideClient(Active().Card);
-            CheckTailInk(retainedBody, "末尾gypq語", verifyNegativeControl: false);
+            CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: false);
             root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, room]);
             Layout("restore native client");
 
@@ -223,78 +231,196 @@ internal static class Program
         Console.Out.Flush();
     }
 
-    private static void CheckTailInk(TextBox body, string finalLine, bool verifyNegativeControl)
+    private static void CheckTailInk(Window host, TextBox body, string finalLine, bool verifyNegativeControl)
     {
-        Phase("native ink capture");
-        // Reference: a separate ordinarily laid-out native TextBox holding only
-        // the final explicit line, not another measure of the production body.
-        // Compare the last uninterrupted glyph row band (including descenders).
-        var reference = new TextBox
-        {
-            Text = finalLine, FontFamily = body.FontFamily, FontSize = body.FontSize,
-            FontWeight = body.FontWeight, FontStretch = body.FontStretch, FontStyle = body.FontStyle,
-            Foreground = body.Foreground, Background = Brushes.Transparent, UseLayoutRounding = true,
-            BorderThickness = new Thickness(0), Padding = new Thickness(0), IsReadOnly = true,
-            Width = body.ActualWidth, TextWrapping = body.TextWrapping,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        };
-        var p = body.PointToScreen(new Point(0, 0));
-        var dpi = VisualTreeHelper.GetDpi(body);
+        Phase("terminal viewport geometry");
+        var root = (FrameworkElement)host.Content;
+        var dpi = VisualTreeHelper.GetDpi(root);
+        var terminal = body.Text.LastIndexOf(finalLine, StringComparison.Ordinal);
+        Require(terminal > 0 && body.Text[(terminal + finalLine.Length)..].Trim('\r', '\n').Length == 0,
+            "The synthetic marker is not the last nonblank line.");
+        Require(body.ViewportHeight > 0 && Math.Abs(body.VerticalOffset -
+            Math.Max(0, body.ExtentHeight - body.ViewportHeight)) <= 1 / dpi.DpiScaleY,
+            "Production text did not reach the native terminal scroll offset.");
+
+        var viewport = FindPresenter(body);
+        Require(viewport is { ActualWidth: > 0, ActualHeight: > 0 }, "Production native scroll viewport not found.");
+        var view = viewport!.TransformToAncestor(root).TransformBounds(
+            new Rect(new Point(), viewport.RenderSize));
+        var liveAnchor = Anchor(body, root, terminal);
+        var end = Anchor(body, root, terminal + finalLine.Length - 1);
+        Require(Math.Abs(liveAnchor.Y - end.Y) < 1 / dpi.DpiScaleY,
+            "The marker wrapped; a one-line raster reference is not comparable.");
+        Require(liveAnchor.Y >= view.Top - 1 / dpi.DpiScaleY && liveAnchor.Y < view.Bottom,
+            "The native hit geometry cannot place the marker within its scroll viewport.");
+        Phase($"terminal viewport settled: viewport={view}, anchor={liveAnchor}, dpi={dpi.PixelsPerInchY}");
+
+        // Use the very same BodyBox constructor and transparent HWND mode. The
+        // isolated reference deliberately has no lower clip around the marker.
+        // A chromatic foreground isolates the monochrome suffix from paper,
+        // borders and header; color emoji is checked separately in native
+        // selection, not claimed by this foreground-based raster.
+        var factory = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
+        var reference = (TextBox)factory.GetMethod("BodyBox", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!;
+        reference.IsReadOnly = true;
+        reference.Text = finalLine;
+        reference.Width = reference.MaxWidth = body.ActualWidth;
+        var tint = new SolidColorBrush(Color.FromRgb(255, 0, 255));
+        var old = body.Foreground;
+        var referenceRoot = new Grid { ClipToBounds = true, Background = Brushes.Transparent };
+        referenceRoot.Children.Add(reference);
+        var p = root.PointToScreen(new Point());
         var window = new Window
         {
+            AllowsTransparency = host.AllowsTransparency, Background = host.Background,
             Left = p.X / dpi.DpiScaleX, Top = p.Y / dpi.DpiScaleY,
             WindowStartupLocation = WindowStartupLocation.Manual,
-            Width = body.ActualWidth, Height = 70, ShowActivated = false,
-            ShowInTaskbar = false, WindowStyle = WindowStyle.None, Content = reference
+            Width = body.ActualWidth, Height = 100, ShowActivated = false, ShowInTaskbar = false,
+            WindowStyle = host.WindowStyle, ResizeMode = host.ResizeMode,
+            UseLayoutRounding = host.UseLayoutRounding, FontFamily = host.FontFamily, FontSize = host.FontSize,
+            Content = referenceRoot
         };
-        window.Show();
+        TextOptions.SetTextFormattingMode(reference, TextOptions.GetTextFormattingMode(body));
+        TextOptions.SetTextRenderingMode(reference, TextOptions.GetTextRenderingMode(body));
+        TextOptions.SetTextHintingMode(reference, TextOptions.GetTextHintingMode(body));
         try
         {
+            Phase("terminal same-surface reference Show");
+            window.Show();
             window.UpdateLayout();
-            Require(VisualTreeHelper.GetDpi(reference).DpiScaleY == dpi.DpiScaleY,
-                "Reference marker is not on the production DPI.");
-            int TailBand(TextBox text, int? pixelHeight = null)
-            {
-                var w = Math.Max(1, (int)Math.Ceiling(text.ActualWidth * dpi.DpiScaleX));
-                var h = pixelHeight ?? Math.Max(1, (int)Math.Ceiling(text.ActualHeight * dpi.DpiScaleY));
-                var bitmap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-                bitmap.Render(text);
-                return LastBand(bitmap).Rows;
-            }
-            static (int Bottom, int Rows) LastBand(BitmapSource bitmap)
-            {
-                var w = bitmap.PixelWidth;
-                var h = bitmap.PixelHeight;
-                var bytes = new byte[w * h * 4];
-                bitmap.CopyPixels(bytes, w * 4, 0);
-                int bottom = -1, rows = 0;
-                for (var y = h - 1; y >= 0; y--)
-                {
-                    var ink = false;
-                    for (var ix = 0; ix < w; ix++)
-                        if (bytes[(y * w + ix) * 4 + 3] >= 32) { ink = true; break; }
-                    if (!ink && bottom >= 0) break;
-                    if (ink) { if (bottom < 0) bottom = y; rows++; }
-                }
-                return (bottom, rows);
-            }
-            var expected = TailBand(reference);
-            var wb = (int)Math.Ceiling(body.ActualWidth * dpi.DpiScaleX);
-            var hb = (int)Math.Ceiling(body.ActualHeight * dpi.DpiScaleY);
-            var actual = new RenderTargetBitmap(wb, hb, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-            actual.Render(body);
-            var (bottom, rows) = LastBand(actual);
-            Require(expected >= 4 && rows == expected,
-                $"Final native glyph band loses pixels: reference {expected}, shown {rows}.");
+            host.UpdateLayout();
+            var referenceDpi = VisualTreeHelper.GetDpi(referenceRoot);
+            Require(referenceDpi.DpiScaleX == dpi.DpiScaleX && referenceDpi.DpiScaleY == dpi.DpiScaleY,
+                "Marker reference is on a different physical pixel scale.");
+            var referenceAnchor = Anchor(reference, referenceRoot, 0);
+            var referenceEnd = Anchor(reference, referenceRoot, finalLine.Length - 1);
+            Require(Math.Abs(referenceAnchor.Y - referenceEnd.Y) < 1 / dpi.DpiScaleY &&
+                Math.Abs((end.X - liveAnchor.X) - (referenceEnd.X - referenceAnchor.X)) < 1 / dpi.DpiScaleX,
+                "Production marker and reference do not share single-line metrics.");
+            // Both captures share a caret-relative grid and retain the live
+            // anchor's fractional device-pixel phase; only the reference is
+            // translated fractionally. Actual uses its ancestor clips intact.
+            const int leftGuard = 4, topGuard = 4;
+            var x0 = (int)Math.Floor(liveAnchor.X * dpi.DpiScaleX) - leftGuard;
+            var y0 = (int)Math.Floor(liveAnchor.Y * dpi.DpiScaleY) - topGuard;
+            var w = (int)Math.Ceiling((end.X - liveAnchor.X + 30) * dpi.DpiScaleX) + leftGuard;
+            var h = (int)Math.Ceiling(body.FontSize * 1.65 * dpi.DpiScaleY) + topGuard;
+            Phase("terminal registered pixel comparison");
+            var referenceX = x0 / dpi.DpiScaleX - liveAnchor.X + referenceAnchor.X;
+            var referenceY = y0 / dpi.DpiScaleY - liveAnchor.Y + referenceAnchor.Y;
+            var expected = Capture(referenceRoot, reference, tint, referenceX, referenceY, w, h, dpi);
+            var actual = Capture(root, body, tint, x0 / dpi.DpiScaleX, y0 / dpi.DpiScaleY, w, h, dpi);
+            // The original fixture has other lines above the marker. Only
+            // ignore rows *above* its independently determined first ink;
+            // never ignore a missing or extra bottom row.
+            var first = Array.FindIndex(expected, pixel => pixel != 0);
+            Require(first >= 0, "The aligned reference contains no marker pixels.");
+            Array.Clear(actual, 0, first / w * w);
+            var verdict = TerminalMask.Compare(expected, actual, w, out var expectedLast, out var actualLast);
+            Require(expectedLast >= topGuard && expectedLast < h - 1,
+                "The reference marker has no complete painted tail inside the comparison grid.");
             if (verifyNegativeControl)
             {
-                var cropped = new CroppedBitmap(actual, new Int32Rect(0, 0, wb, bottom));
-                Require(LastBand(cropped).Rows != expected, "One-device-pixel crop was not detected.");
+                // Perform an actual WPF ancestor clip and capture again, on
+                // the same registered pixel grid. A synthetic boolean crop
+                // alone would not exercise the brush/raster/clip pipeline.
+                Phase("terminal reference: physical one-row ancestor clip");
+                var cutoff = referenceY + expectedLast / dpi.DpiScaleY;
+                Require(cutoff > 0 && cutoff < referenceRoot.ActualHeight,
+                    "The reference clip boundary is outside its layout.");
+                var originalClip = referenceRoot.Clip;
+                byte[] clipped;
+                try
+                {
+                    referenceRoot.Clip = new RectangleGeometry(new Rect(0, 0, referenceRoot.ActualWidth, cutoff));
+                    clipped = Capture(referenceRoot, reference, tint, referenceX, referenceY, w, h, dpi);
+                }
+                finally { referenceRoot.Clip = originalClip; }
+                var clipVerdict = TerminalMask.Compare(expected, clipped, w, out _, out var clippedLast);
+                var expectedOneRowClip = expected.ToArray();
+                Array.Clear(expectedOneRowClip, expectedLast * w, w);
+                Require(clipVerdict == TerminalMaskResult.BottomRowsMissing && clipped.AsSpan().SequenceEqual(expectedOneRowClip),
+                    $"One-device-pixel ancestor clip was not isolated: ref={expectedLast}, clipped={clippedLast}, verdict={clipVerdict}.");
+                Phase("terminal reference: physical one-row ancestor clip detected");
             }
+            var lastVisible = view.Bottom * dpi.DpiScaleY - y0;
+            Phase($"terminal mask={verdict}: ref={expectedLast}, live={actualLast}, viewport-bottom={lastVisible:F2}");
+            var description = verdict == TerminalMaskResult.BottomRowsMissing
+                ? (Math.Abs(lastVisible - (actualLast + 1)) <= 1
+                    ? "lower viewport edge agrees with missing suffix"
+                    : "matching prefix loses bottom rows away from reported viewport edge")
+                : verdict == TerminalMaskResult.OtherMismatch
+                    ? "different aligned shape; raster/environment mismatch or other drawing fault, not established clipping"
+                    : "aligned mask matched";
+            Require(verdict == TerminalMaskResult.Match,
+                $"Terminal ink {verdict}: ref={expectedLast}, live={actualLast}, viewport-bottom={lastVisible:F2}; {description}.");
         }
-        finally { window.Close(); }
-        Phase("native ink capture completed");
+        finally
+        {
+            window.Close();
+            body.Foreground = old;
+        }
+        Phase("terminal registered pixels complete");
+    }
+
+    private static Point Anchor(TextBox box, FrameworkElement captureRoot, int index)
+    {
+        Phase($"terminal native caret request {index}");
+        var caret = box.GetRectFromCharacterIndex(index, trailingEdge: false);
+        Require(!caret.IsEmpty && double.IsFinite(caret.X) && double.IsFinite(caret.Y),
+            "Native TextBox did not return a terminal character position.");
+        return box.TranslatePoint(caret.TopLeft, captureRoot);
+    }
+
+    private static ScrollContentPresenter? FindPresenter(DependencyObject control)
+    {
+        if (control is ScrollContentPresenter viewport) return viewport;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(control); i++)
+            if (FindPresenter(VisualTreeHelper.GetChild(control, i)) is { } found)
+                return found;
+        return null;
+    }
+
+    private static byte[] Capture(FrameworkElement root, TextBox body, Brush tint,
+        double x, double y, int w, int h, DpiScale dpi)
+    {
+        // Subtract a no-ink control drawn on this exact surface, preserving
+        // clips, paper and the same subpixel grid in both capture pairs.
+        body.Foreground = Brushes.Transparent;
+        var paper = CapturePixels(root, x, y, w, h, dpi);
+        body.Foreground = tint;
+        var ink = CapturePixels(root, x, y, w, h, dpi);
+        var mask = new byte[w * h];
+        for (var i = 0; i < mask.Length; i++)
+        {
+            var j = i * 4;
+            var blue = ink[j] - paper[j];
+            var green = ink[j + 1] - paper[j + 1];
+            var red = ink[j + 2] - paper[j + 2];
+            mask[i] = Math.Min(blue, red) - green >= 42 ? (byte)1 : (byte)0;
+        }
+        return mask;
+    }
+
+    private static byte[] CapturePixels(FrameworkElement root, double x, double y, int w, int h, DpiScale dpi)
+    {
+        root.UpdateLayout();
+        var drawing = new DrawingVisual();
+        using (var dc = drawing.RenderOpen())
+        {
+            var sample = new Rect(x, y, w / dpi.DpiScaleX, h / dpi.DpiScaleY);
+            var brush = new VisualBrush(root)
+            {
+                ViewboxUnits = BrushMappingMode.Absolute, Viewbox = sample,
+                Stretch = Stretch.Fill, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top
+            };
+            dc.DrawRectangle(brush, null, new Rect(new Point(), sample.Size));
+        }
+        var bitmap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        bitmap.Render(drawing);
+        var pixels = new byte[w * h * 4];
+        bitmap.CopyPixels(pixels, w * 4, 0);
+        return pixels;
     }
 
     private static void Require(bool condition, string message)
