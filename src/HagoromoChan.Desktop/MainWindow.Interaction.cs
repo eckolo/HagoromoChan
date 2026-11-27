@@ -303,6 +303,18 @@ public partial class MainWindow : Window
             size.Items.Add(item);
         }
         menu.Items.Add(size);
+        var historyLines = new MenuItem { Header = "履歴の折りたたみ行数" };
+        for (var lines = HistoryPresentation.MinimumPreviewLines; lines <= HistoryPresentation.MaximumPreviewLines; lines++)
+        {
+            var selected = lines;
+            historyLines.Items.Add(ToggleMenuCommand($"{selected}行", _preferences.HistoryPreviewLines == selected, () =>
+            {
+                _preferences.HistoryPreviewLines = selected;
+                _panels.SetHistoryPreviewLines(selected);
+                SavePreferences();
+            }));
+        }
+        menu.Items.Add(historyLines);
         menu.Items.Add(MenuCommand("表示位置を初期化", () =>
         {
             RestorePosition(reset: true);
