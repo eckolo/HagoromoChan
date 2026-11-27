@@ -83,12 +83,13 @@ internal static class Program
                 + "\r\n最終行：語😀 gypqç";
             Require(topic.Length is >= 550 and <= 750, "Keep the production fixture near 600 characters.");
             var longText = topic + "\r\n" + string.Concat(Enumerable.Repeat("ABC123折り返し😀", 350)) + "\r\n末尾gypq語\r\n";
-            Invoke("UpdateHistory", new[]
+            var history = new[]
             {
                 new ChatMessage(1, "topic-user", "user", topic, null, DateTimeOffset.UnixEpoch),
                 new ChatMessage(2, "topic-assistant", "assistant", topic, "topic-user", DateTimeOffset.UnixEpoch),
                 new ChatMessage(3, "long", "assistant", longText, "topic-user", DateTimeOffset.UnixEpoch)
-            }, Array.Empty<string>());
+            };
+            Invoke("UpdateHistory", history, Array.Empty<string>());
 
             (DockPanel Card, Border Frame, TextBox Body) Active()
             {
@@ -273,6 +274,18 @@ internal static class Program
             ToggleDisclosure();
             Require(ReferenceEquals(Active().Body, previous) && previous.Text == topic,
                 "The same older card should restore all the original text when expanded.");
+            // A native resize can perform intermediate layouts before the
+            // dispatcher reaches the stable view. None is a page navigation.
+            var historyBudgetSetter = root.GetType().GetMethod("SetClientBudget", Flags)!;
+            var historyWidth = root.ActualWidth;
+            historyBudgetSetter.Invoke(root, [historyWidth, 0.0]);
+            window.UpdateLayout();
+            historyBudgetSetter.Invoke(root, [historyWidth, room]);
+            Layout("restore viewport before display commit");
+            Invoke("UpdateHistory", history, new[] { "long" });
+            Layout("history refresh after disclosure");
+            Require(ReferenceEquals(Active().Body, previous) && previous.Text == topic,
+                "A transient empty layout closed the same expanded history page on refresh.");
             CheckTailInkAfterScroll(previous, "gypqç");
             ToggleDisclosure();
             Invoke("SetHistoryPreviewLines", 2);

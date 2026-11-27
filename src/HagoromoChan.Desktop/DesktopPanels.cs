@@ -46,6 +46,7 @@ internal sealed class DesktopPanels
     private bool _closing;
     private bool _arranging;
     private bool _arrangeQueued;
+    private bool _historyDisplayCommitQueued;
     private ConversationVisibility _visibility;
     private bool _composing;
     private bool _assigningDraft;
@@ -188,8 +189,7 @@ internal sealed class DesktopPanels
         Conversation = Surface("会話", _conversationRoot, dismissAll);
         _historyStack.LayoutUpdated += (_, _) =>
         {
-            if (HistoryOpen && Conversation.IsVisible && _historyStack.IsMeasureValid && _historyStack.IsArrangeValid)
-                RecordDisplayedHistory();
+            QueueHistoryDisplayCommit();
             UpdateHistoryArrows();
         };
         Conversation.Activated += (_, _) =>
@@ -556,11 +556,26 @@ internal sealed class DesktopPanels
         _displayedHistory.Clear();
     }
 
-    private void RecordDisplayedHistory()
+    private void QueueHistoryDisplayCommit()
     {
-        var next = VisibleHistoryPages().Select(page => page.Id).ToHashSet(StringComparer.Ordinal);
-        _historyPresentation.LeftDisplay(_displayedHistory.Except(next));
-        _displayedHistory = next;
+        if (_historyDisplayCommitQueued || _closing || !HistoryOpen || !Conversation.IsVisible)
+            return;
+        _historyDisplayCommitQueued = true;
+        Conversation.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            _historyDisplayCommitQueued = false;
+            if (_closing || !HistoryOpen || !Conversation.IsVisible || _arranging || _arrangeQueued ||
+                !_conversationRoot.IsMeasureValid || !_conversationRoot.IsArrangeValid ||
+                !_historyStack.IsMeasureValid || !_historyStack.IsArrangeValid)
+                return;
+            // The final stack slots own page membership. The stricter screen-
+            // geometry test for read receipts can fail during native moves or
+            // rounding; that must not undo a user's disclosure choice.
+            var next = _renderedKeys.Where(id => _liveHistory.TryGetValue(id, out var card) &&
+                _historyStack.Offers(card.Card)).ToHashSet(StringComparer.Ordinal);
+            _historyPresentation.LeftDisplay(_displayedHistory.Except(next));
+            _displayedHistory = next;
+        }));
     }
 
     private HistoryBodyMeasurement MeasureHistory(ChatMessage message, double width, DpiScale dpi)
@@ -578,7 +593,13 @@ internal sealed class DesktopPanels
         if (!_liveHistory.TryGetValue(id, out var card) || card.Disclosure.Visibility != Visibility.Visible ||
             !_historyStack.Offers(card.Card) || card.Collapsed == collapsed) return;
         if (collapsed) _historyPresentation.Collapse(id);
-        else _historyPresentation.Expand(id);
+        else
+        {
+            _historyPresentation.Expand(id);
+            // A disclosure can be operated only on an offered card. Mark it
+            // even if the next stable display commit has not run yet.
+            _displayedHistory.Add(id);
+        }
         _historyProtectionDirty = true;
         RequestArrange();
     }
@@ -905,6 +926,7 @@ internal sealed class DesktopPanels
             else HideIfVisible(Status);
         }
         finally { _arranging = false; }
+        QueueHistoryDisplayCommit();
     }
 
     public void SetTopmost(bool enabled)
