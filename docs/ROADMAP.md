@@ -57,6 +57,7 @@
 | MGMT-46 | 履歴・入力窓の操作改善とキャラクターアクションの追加を登録 | 管理 | MGMT-44、M41の定義 | `milestone/MGMT-46-register-conversation-interaction` | [MGMT-46](milestones/MGMT-46.md) |
 | M47 | 履歴の未読アイコン配置と新着からの返信導線 | 優先度は着手時に確認 | M03・M14（完了）、M18との整合を確認 | `milestone/M47-unread-and-reply-controls` | [M47](milestones/M47.md) |
 | MGMT-48 | 頭上窓の新着選択時の履歴配置をM47へ追加 | 管理 | MGMT-46、M47・M14の定義 | `milestone/MGMT-48-record-unread-history-layout` | [MGMT-48](milestones/MGMT-48.md) |
+| MGMT-49 | 待機時の瞬き・回答待ちモーションの速度調整をM33に追加 | 管理 | MGMT-48、M21・M33 | `milestone/MGMT-49-record-idle-motion-pacing` | [MGMT-49](milestones/MGMT-49.md) |
 
 ## 着手順と依存
 
@@ -77,6 +78,8 @@
 - MGMT-46: 起動およびキャラクター操作時の演出を M41 にまとめ、履歴の未読アイコン配置と新着から返信する操作を M47 に登録する。アプリの終了と窓を閉じる操作は分ける。M14の新着解除やM21の終了制御の仕様は変更しない。
 
 - MGMT-48: 頭上窓の「新着」を明示選択した場合の履歴配置をM47に追加する。最古の新着を表示し、その範囲で新しい新着を優先し、最後に選択前の表示との差を抑える。返信導線は最下部の操作窓の「話しかける」アイコンとし、自動受信とM14の既読判定は変更しない。
+
+- MGMT-49: 通常待機の瞬きと回答待ちモーションをゆったりさせる調整をM33に追加する。状況別の選択方式、Work連携や自律移動を待たず、既存のローカル動作の調整として検討できる。
 
 ## 更新方針
 
