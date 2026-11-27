@@ -39,6 +39,12 @@ if ($TestName) {
 }
 $dotnet = (Get-Command dotnet -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$artifactsRoot = Join-Path ([IO.Path]::GetTempPath()) ('HagoromoChan-Tests-' + [Guid]::NewGuid().ToString('N'))
+function Get-TestAssembly($Check, [string]$Artifacts) {
+    # Manifest projects target one framework; the SDK artifacts pivot for a
+    # single-target Release build is "release", not the normal TFM directory.
+    return Join-Path $Artifacts "bin/$($Check.project)/release/$($Check.project).dll"
+}
 Push-Location $repo
 try {
     $revision = 'unknown'
@@ -58,12 +64,21 @@ try {
             }
             if (-not $check.listArguments) { continue }
             $project = Join-Path 'tests' $check.project
-            & $dotnet build $project -c Release --no-incremental | Out-Host
-            if ($LASTEXITCODE -ne 0) { $listingFailed = $true; continue }
-            $dll = Join-Path $project "bin/Release/$($check.framework)/$($check.project).dll"
-            $listingArguments = @($dll) + @($check.listArguments)
-            & $dotnet @listingArguments
-            if ($LASTEXITCODE -ne 0) { $listingFailed = $true }
+            $artifacts = Join-Path $artifactsRoot $check.name
+            try {
+                & $dotnet build $project -c Release --no-incremental --artifacts-path $artifacts | Out-Host
+                if ($LASTEXITCODE -ne 0) { $listingFailed = $true; continue }
+                $dll = Get-TestAssembly $check $artifacts
+                if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) {
+                    throw "Fresh test assembly not found: $dll"
+                }
+                $listingArguments = @($dll) + @($check.listArguments)
+                & $dotnet @listingArguments
+                if ($LASTEXITCODE -ne 0) { $listingFailed = $true }
+            } catch {
+                Write-Host "ERROR $($check.name) list: $($_.Exception.Message)"
+                $listingFailed = $true
+            }
         }
         if ($listingFailed) { exit 1 }
         exit 0
@@ -81,11 +96,12 @@ try {
             continue
         }
         $project = Join-Path 'tests' $check.project
+        $artifacts = Join-Path $artifactsRoot $name
 
         Write-Host "RUN  $name build"
         $code = $null
         try {
-            & $dotnet build $project -c Release --no-incremental
+            & $dotnet build $project -c Release --no-incremental --artifacts-path $artifacts
             $code = $LASTEXITCODE
         } catch {
             Write-Host "ERROR ${name} build: $($_.Exception.Message)"
@@ -99,7 +115,7 @@ try {
         }
         $results += "PASS $name build (exit=0)"
 
-        $dll = Join-Path $project "bin/Release/$($check.framework)/$($check.project).dll"
+        $dll = Get-TestAssembly $check $artifacts
         # Invoke the fresh binary directly so there is no second build.
         $testArguments = @($dll)
         if ($check.arguments) { $testArguments += $check.arguments }
@@ -107,6 +123,9 @@ try {
         Write-Host "RUN  $name run"
         $code = $null
         try {
+            if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) {
+                throw "Fresh test assembly not found: $dll"
+            }
             & $dotnet @testArguments
             $code = $LASTEXITCODE
         } catch {
@@ -134,4 +153,12 @@ try {
     exit 0
 } finally {
     Pop-Location
+    if (Test-Path -LiteralPath $artifactsRoot -PathType Container) {
+        try {
+            # Remove only this GUID-named test directory, never existing bin/obj.
+            Remove-Item -LiteralPath $artifactsRoot -Recurse -Force
+        } catch {
+            Write-Warning "Could not remove this run's temporary artifacts: $artifactsRoot"
+        }
+    }
 }
