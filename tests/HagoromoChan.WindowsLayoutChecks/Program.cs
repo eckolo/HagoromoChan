@@ -359,7 +359,7 @@ internal static class Program
             {
                 new ChatMessage(4, "rich", "assistant", markdown, null, DateTimeOffset.UnixEpoch),
                 new ChatMessage(5, "after-rich", "assistant", "次の発言", null, DateTimeOffset.UnixEpoch)
-            }, Array.Empty<string>());
+            }, new[] { "rich" });
             Invoke("ShowMessage", "rich");
             Layout("rich history");
             (DockPanel Card, DockPanel Content) ActiveContent()
@@ -375,8 +375,21 @@ internal static class Program
                 button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
                 Layout(name);
             }
+            var headerNames = new[] { "この回答を既読にする", "原文を表示", "折りたたむ", "この発言の全文をコピー" };
+            void CheckHistoryHeader(string[] expected)
+            {
+                var header = (DockPanel)ActiveContent().Content.Children[0];
+                var names = header.Children.OfType<Button>()
+                    .Where(button => button.IsVisible)
+                    .OrderBy(button => button.TranslatePoint(new Point(0, 0), header).X)
+                    .Select(button => System.Windows.Automation.AutomationProperties.GetName(button))
+                    .ToArray();
+                Require(names.SequenceEqual(expected), "History header actions were not in the expected visual order.");
+            }
+            CheckHistoryHeader(headerNames);
             var rich = ActiveContent().Content.Children[1] as RichTextBox;
-            Require(rich is { IsReadOnly: true, IsDocumentEnabled: false }, "The Markdown body is not a read-only native document.");
+            Require(rich is { IsReadOnly: true, IsDocumentEnabled: false },
+                "Supported Markdown did not open by default as a read-only native document.");
             RichTextBox formatted = rich!;
             Require(formatted.Document.Blocks.FirstBlock is Paragraph first && first.FontWeight == FontWeights.Bold,
                 "The Markdown heading was not rendered as a native heading.");
@@ -391,6 +404,17 @@ internal static class Program
             ClickHistoryButton("書式付きで表示");
             Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted),
                 "A format toggle replaced the retained native document.");
+            // Recreating the card after read-state changes must not be required
+            // to hide the read action, or to retain the order of the others.
+            Invoke("UpdateHistory", new[]
+            {
+                new ChatMessage(4, "rich", "assistant", markdown, null, DateTimeOffset.UnixEpoch),
+                new ChatMessage(5, "after-rich", "assistant", "次の発言", null, DateTimeOffset.UnixEpoch)
+            }, Array.Empty<string>());
+            Layout("Markdown read-state controls");
+            Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted),
+                "Changing unread state replaced the native document.");
+            CheckHistoryHeader(headerNames[1..]);
             // A tall desktop can fit the entire formatted fixture. Use the same
             // production client constraint as the plain-history regression, so
             // this check exercises overflow regardless of monitor height.

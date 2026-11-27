@@ -49,11 +49,14 @@
 | MGMT-38 | イラストの透過修正を登録 | 管理 | MGMT-36 | `milestone/MGMT-38-register-hair-gap-alpha` | [MGMT-38](milestones/MGMT-38.md) |
 | MGMT-39 | キャラクター動作の拡張方針を恒久化 | 管理 | M21、MGMT-30 | `milestone/MGMT-39-action-extensibility-rule` | [MGMT-39](milestones/MGMT-39.md) |
 | MGMT-40 | キャラクターアクションの追加計画と運用を登録 | 管理 | MGMT-39、M33 | `milestone/MGMT-40-register-character-action-followups` | [MGMT-40](milestones/MGMT-40.md) |
-| M41 | アプリ起動時のキャラクターアクション | 優先度は着手時に確認 | M08・M09・M21（完了） | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
+| M41 | アプリ起動とキャラクター操作時のアクション | 優先度は着手時に確認 | M03・M08・M09・M21（完了）、M47と操作境界を確認 | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
 | MGMT-42 | 履歴発言の折りたたみを登録 | 管理 | MGMT-40 | `milestone/MGMT-42-register-history-collapse` | [MGMT-42](milestones/MGMT-42.md) |
 | M43 | 履歴の発言ごとの折りたたみ表示 | 優先度は着手時に確認 | M03・M22、M35と整合 | `milestone/M43-history-message-collapse` | [M43](milestones/M43.md) |
 | MGMT-44 | 共通テスト基盤の計画を登録 | 管理 | MGMT-42 | `milestone/MGMT-44-register-shared-test-runner` | [MGMT-44](milestones/MGMT-44.md) |
 | M45 | 自動テストの共通実行基盤 | 最優先 | MGMT-44 | `milestone/M45-shared-test-runner` | [M45](milestones/M45.md) |
+| MGMT-46 | 履歴・入力窓の操作改善とキャラクターアクションの追加を登録 | 管理 | MGMT-44、M41の定義 | `milestone/MGMT-46-register-conversation-interaction` | [MGMT-46](milestones/MGMT-46.md) |
+| M47 | 履歴の未読アイコン配置と新着からの返信導線 | 優先度は着手時に確認 | M03・M14（完了）、M18との整合を確認 | `milestone/M47-unread-and-reply-controls` | [M47](milestones/M47.md) |
+| MGMT-48 | 頭上窓の新着選択時の履歴配置をM47へ追加 | 管理 | MGMT-46、M47・M14の定義 | `milestone/MGMT-48-record-unread-history-layout` | [MGMT-48](milestones/MGMT-48.md) |
 
 ## 着手順と依存
 
@@ -71,6 +74,9 @@
 - 既存の通信実証は現行実装の成果として扱い、新たなアプリ本体マイルストーンにはしない。
 - M45 を最優先とし、現行ソースの自動テストを共通の入口へまとめる。画面機能の修正や他のマイルストーンの完了条件を置き換えない。
 
+- MGMT-46: 起動およびキャラクター操作時の演出を M41 にまとめ、履歴の未読アイコン配置と新着から返信する操作を M47 に登録する。アプリの終了と窓を閉じる操作は分ける。M14の新着解除やM21の終了制御の仕様は変更しない。
+
+- MGMT-48: 頭上窓の「新着」を明示選択した場合の履歴配置をM47に追加する。最古の新着を表示し、その範囲で新しい新着を優先し、最後に選択前の表示との差を抑える。返信導線は最下部の操作窓の「話しかける」アイコンとし、自動受信とM14の既読判定は変更しない。
 
 ## 更新方針
 

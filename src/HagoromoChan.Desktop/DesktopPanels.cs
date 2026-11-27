@@ -67,6 +67,15 @@ internal sealed class DesktopPanels
     private (double Available, OverlaySide Side) _protectionBudget;
     private bool _historyProtectionDirty = true;
     private int _historyPreviewLines = HistoryPresentation.DefaultPreviewLines;
+    // Declarative left-to-right groups for actions in a history card header.
+    private enum HistoryHeaderVisibility
+    {
+        TemporaryOnMatchingCards,
+        TemporaryOnAllCards,
+        PersistentOnMatchingCards,
+        PersistentOnAllCards
+    }
+
     private sealed record HistoryCard(DockPanel Card, DockPanel Content, Button Read, TextBox Plain,
         Button Disclosure, Button Format, string Source)
     {
@@ -720,19 +729,13 @@ internal sealed class DesktopPanels
         var title = $"{role}　{message.CreatedAt.LocalDateTime:M/d HH:mm}";
         var header = new DockPanel { Height = BubbleLayout.HistoryHeader, Margin = new Thickness(0, 0, 0, BubbleLayout.HistoryHeaderGap) };
         var copy = SymbolButton("⧉", "この発言の全文をコピー", () => Copy(message.Text));
-        DockPanel.SetDock(copy, Dock.Right);
-        header.Children.Add(copy);
         var read = SymbolButton("✓", "この回答を既読にする", () => _markRead([message.Id]));
         read.Visibility = Visibility.Collapsed;
-        DockPanel.SetDock(read, Dock.Right);
-        header.Children.Add(read);
         var disclosure = SymbolButton("⌄", "全文を表示", () =>
         {
             if (_liveHistory.TryGetValue(message.Id, out var card))
                 SetHistoryCollapsed(message.Id, !card.Collapsed);
         });
-        DockPanel.SetDock(disclosure, Dock.Right);
-        header.Children.Add(disclosure);
         var format = SymbolButton("{ }", "原文を表示", () =>
         {
             if (!_liveHistory.TryGetValue(message.Id, out var card) || card.Collapsed || card.Formatted is null)
@@ -741,8 +744,20 @@ internal sealed class DesktopPanels
             RequestArrange();
         });
         format.Visibility = Visibility.Collapsed;
-        DockPanel.SetDock(format, Dock.Right);
-        header.Children.Add(format);
+        // Keep the established visual order within each group. A right-docked
+        // child occupies space from the outer edge inward, so add in reverse.
+        (Button Button, HistoryHeaderVisibility Group)[] headerActions =
+        [
+            (read, HistoryHeaderVisibility.TemporaryOnMatchingCards),
+            (format, HistoryHeaderVisibility.PersistentOnMatchingCards),
+            (disclosure, HistoryHeaderVisibility.PersistentOnMatchingCards),
+            (copy, HistoryHeaderVisibility.PersistentOnAllCards)
+        ];
+        foreach (var (button, _) in headerActions.OrderBy(action => action.Group).Reverse())
+        {
+            DockPanel.SetDock(button, Dock.Right);
+            header.Children.Add(button);
+        }
         var label = Label(title, 12);
         label.FontWeight = FontWeights.SemiBold;
         label.VerticalAlignment = VerticalAlignment.Center;
