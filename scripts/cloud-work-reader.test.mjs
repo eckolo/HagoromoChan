@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { verifiedWorkTitle, verifiedCompletedWorkAnswer, collectNativeWorkPages, serviceOneWorkRequest, serviceWorkWake } from "./m05-work-reader.mjs";
+import { verifiedWorkTitle, verifiedCompletedWorkAnswer, collectNativeWorkPages, serviceOneWorkRequest, serviceWorkWake } from "./cloud-work-reader.mjs";
 
 const thread = "work_real_fixture";
 const turn = { status: "completed", id: "turn_completed", completedAt: 1234 };

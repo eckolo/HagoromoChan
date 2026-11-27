@@ -162,6 +162,8 @@ public sealed class WorkRetrieval(ChatStore store)
                     throw new ValidationException("A message ID and complete body are required.");
                 // Stable per registered source and original answer, independent of the request/retry UUID.
                 // Provider IDs are case-sensitive, opaque and restricted to unreserved URI characters.
+                // The legacy hash domain is part of persistent answer identity; changing
+                // its spelling would duplicate already imported answers.
                 var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"m05-work:{result.SourceId}:{result.MessageId}"));
                 var importId = new Guid(hash.AsSpan(0, 16)).ToString("D");
                 answer = store.ImportCloudAnswer(result.SourceId, importId, result.Text);

@@ -50,9 +50,9 @@ for that selection. Listing requires a provider that can prove completion for
 each listed item; a provider with only the latest completed turn may return
 just that verified choice. Display labels have no identity meaning.
 
-`scripts/m05-work-reader.mjs` implements the read adapter's validation and
+`scripts/cloud-work-reader.mjs` implements the read adapter's validation and
 dispatch independently of a host. Run its synthetic rejection/selection tests
-with `node scripts/m05-work-reader.test.mjs`. A host must obtain only the
+with `node scripts/cloud-work-reader.test.mjs`. A host must obtain only the
 already-authorized Work records and pass through the provider's exact metadata;
 neither the module nor the SSP creates an authorization grant. Native completed
 turn ID and item ID must match within the exact requested execution thread.

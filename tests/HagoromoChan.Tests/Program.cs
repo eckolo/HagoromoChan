@@ -10,6 +10,7 @@ if (args is ["--preview-m05"])
 
 var tests = new (string Id, string Name, Action Run)[]
 {
+    ("Core.CloudImportChecks.LocalRoutes", "Cloud import operations retain old-client route aliases", CloudImportChecks.LocalRoutes),
     ("Core.CloudImportChecks.Run", "imports preserve Dot isolation, exact retries and source identity", CloudImportChecks.Run),
     ("Core.CloudImportChecks.PreviewSeed", "preview fixtures persist separately without touching Dot", CloudImportChecks.PreviewSeed),
     ("Core.CloudImportChecks.WorkWake", "scoped Work wake cannot claim another operation or alter the Dot subscription", CloudImportChecks.WorkWake),

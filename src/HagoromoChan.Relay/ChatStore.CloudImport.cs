@@ -14,6 +14,7 @@ public sealed partial class ChatStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
+            -- Preserve the pilot store names for in-place upgrades and rollback.
             CREATE TABLE IF NOT EXISTS m05_sources (
                 id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, url TEXT NOT NULL,
                 title TEXT NOT NULL, conversation_id TEXT NOT NULL, UNIQUE(kind, conversation_id)

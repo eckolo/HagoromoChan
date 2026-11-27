@@ -39,37 +39,37 @@ internal sealed class RelayClient : IDisposable
         SendAsync<RelayStatus>(HttpMethod.Post, "/api/retry", null, cancellationToken);
 
     public Task<WorkPullStatus> DiscoverWorkAsync(CancellationToken cancellationToken) =>
-        SendAsync<WorkPullStatus>(HttpMethod.Post, "/api/m05/work-discovery", null, cancellationToken);
+        SendAsync<WorkPullStatus>(HttpMethod.Post, $"{CloudImportHttp.Prefix}/work-discovery", null, cancellationToken);
 
     public Task<CloudSource> RegisterDiscoveredWorkAsync(string operationId, string conversationId, CancellationToken cancellationToken) =>
         SendAsync<CloudSource>(HttpMethod.Post,
-            $"/api/m05/work-discovery/{Uri.EscapeDataString(operationId)}/select/{Uri.EscapeDataString(conversationId)}", null, cancellationToken);
+            $"{CloudImportHttp.Prefix}/work-discovery/{Uri.EscapeDataString(operationId)}/select/{Uri.EscapeDataString(conversationId)}", null, cancellationToken);
 
     public Task<WorkPullStatus> ListWorkAnswersAsync(string sourceId, CancellationToken cancellationToken) =>
         SendAsync<WorkPullStatus>(HttpMethod.Post,
-            $"/api/m05/sources/{Uri.EscapeDataString(sourceId)}/work-answers", null, cancellationToken);
+            $"{CloudImportHttp.Prefix}/sources/{Uri.EscapeDataString(sourceId)}/work-answers", null, cancellationToken);
 
     public Task<WorkPullStatus> SelectWorkAnswerAsync(string operationId, string messageId, CancellationToken cancellationToken) =>
         SendAsync<WorkPullStatus>(HttpMethod.Post,
-            $"/api/m05/work-answers/{Uri.EscapeDataString(operationId)}/select/{Uri.EscapeDataString(messageId)}", null, cancellationToken);
+            $"{CloudImportHttp.Prefix}/work-answers/{Uri.EscapeDataString(operationId)}/select/{Uri.EscapeDataString(messageId)}", null, cancellationToken);
 
     public Task<WorkPullStatus> StartWorkRetrievalAsync(string sourceId, CancellationToken cancellationToken) =>
         SendAsync<WorkPullStatus>(HttpMethod.Post,
-            $"/api/m05/sources/{Uri.EscapeDataString(sourceId)}/work-retrieval", null, cancellationToken);
+            $"{CloudImportHttp.Prefix}/sources/{Uri.EscapeDataString(sourceId)}/work-retrieval", null, cancellationToken);
 
     public Task<WorkPullStatus> ReadWorkRetrievalAsync(string operationId, CancellationToken cancellationToken) =>
         SendAsync<WorkPullStatus>(HttpMethod.Get,
-            $"/api/m05/work-retrieval/{Uri.EscapeDataString(operationId)}", null, cancellationToken);
+            $"{CloudImportHttp.Prefix}/work-retrieval/{Uri.EscapeDataString(operationId)}", null, cancellationToken);
 
     public Task<CloudSource[]> GetCloudSourcesAsync(CancellationToken cancellationToken) =>
-        SendAsync<CloudSource[]>(HttpMethod.Get, "/api/m05/sources", null, cancellationToken);
+        SendAsync<CloudSource[]>(HttpMethod.Get, $"{CloudImportHttp.Prefix}/sources", null, cancellationToken);
 
     public Task<CloudSource> SaveCloudSourceAsync(SaveCloudSourceRequest source, CancellationToken cancellationToken) =>
-        SendAsync<CloudSource>(HttpMethod.Post, "/api/m05/sources", source, cancellationToken);
+        SendAsync<CloudSource>(HttpMethod.Post, $"{CloudImportHttp.Prefix}/sources", source, cancellationToken);
 
     public Task<CloudAnswerPage> ReadCloudAnswersAsync(string sourceId, long cursor, CancellationToken cancellationToken) =>
         SendAsync<CloudAnswerPage>(HttpMethod.Get,
-            $"/api/m05/sources/{Uri.EscapeDataString(sourceId)}/answers?after={cursor}&limit=20", null, cancellationToken);
+            $"{CloudImportHttp.Prefix}/sources/{Uri.EscapeDataString(sourceId)}/answers?after={cursor}&limit=20", null, cancellationToken);
 
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? message,
         CancellationToken cancellationToken)

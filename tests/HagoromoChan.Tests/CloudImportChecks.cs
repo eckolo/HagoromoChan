@@ -1,3 +1,8 @@
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using HagoromoChan.Contracts;
 using HagoromoChan.Relay;
@@ -5,6 +10,31 @@ using HagoromoChan.Desktop;
 
 internal static class CloudImportChecks
 {
+    public static void LocalRoutes() => LocalRoutesAsync().GetAwaiter().GetResult();
+
+    private static async Task LocalRoutesAsync()
+    {
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
+        // The endpoint binder only needs to know these parameter types are
+        // services. This test inspects the route table without starting a host.
+        builder.Services.AddSingleton<ChatStore>(_ => throw new InvalidOperationException());
+        builder.Services.AddSingleton<McpHandler>(_ => throw new InvalidOperationException());
+        await using var app = builder.Build();
+        app.MapCloudImportRoutes();
+        var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints)
+            .OfType<RouteEndpoint>().ToArray();
+        string[] Paths(string prefix) => routes
+            .Where(e => e.RoutePattern.RawText?.StartsWith(prefix + "/", StringComparison.Ordinal) == true)
+            .SelectMany(e => e.Metadata.GetRequiredMetadata<IHttpMethodMetadata>().HttpMethods
+                .Select(method => method + " " + e.RoutePattern.RawText![prefix.Length..]))
+            .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        var primary = Paths("/api/cloud-imports");
+        Must(CloudImportHttp.Prefix == "/api/cloud-imports" && primary.Length == 9 &&
+            primary.Distinct(StringComparer.Ordinal).Count() == 9 &&
+            primary.SequenceEqual(Paths("/api/m05")) && routes.Length == 18,
+            "All nine first-party cloud import operations retain the same old-client aliases");
+    }
+
     public static void Run()
     {
         var root = Path.Combine(Path.GetTempPath(), "hagoromo-m05-" + Guid.NewGuid().ToString("N"));
@@ -282,6 +312,10 @@ internal static class CloudImportChecks
         Must((await WorkTool(complete, Completion(pull.OperationId, selected.Id, conversation, exact + "!")))
             .GetProperty("isError").GetBoolean(), "Changed result rejected");
         Must(handler.WorkPull.Status(pull.OperationId).Answer?.Text == exact, "SSP receives exact original body");
+        var legacyHash = SHA256.HashData(Encoding.UTF8.GetBytes($"m05-work:{selected.Id}:{message}"));
+        Must(handler.WorkPull.Status(pull.OperationId).Answer?.ImportId ==
+            new Guid(legacyHash.AsSpan(0, 16)).ToString("D"),
+            "The stored Work identity survives endpoint renaming and does not insert duplicates");
         var pullAgain = handler.WorkPull.Start(selected.Id);
         Must(!(await WorkTool(complete, Completion(pullAgain.OperationId, selected.Id, conversation, exact)))
             .GetProperty("isError").GetBoolean() &&
