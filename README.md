@@ -58,7 +58,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
 | Windows の会話窓・入力欄の描画（M35） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite WindowsLayout` |
 | 両方（Windows） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite All` |
 
-`WindowsLayout` は Windows のデスクトップ上で合成データの小窓を一時的に開きます。合格時は `PASS M35` に続けて `PASS WindowsLayout (exit=0)` と表示します。失敗時は最初のエラーと `FAIL ... (exit=...)` の行を共有してください。通常起動での確認を指定された場合は、テストスクリプトで代用せず通常どおり起動してください。
+`WindowsLayout` は Windows のデスクトップ上で合成データの小窓を一時的に開きます。通常の羽衣ちゃんを終了する必要はありません。合格時は `PASS M35` に続けて `PASS WindowsLayout (exit=0)` と表示します。失敗時は最初のエラーと `FAIL ... (exit=...)` の行を共有してください。通常起動での確認を指定された場合は、テストスクリプトで代用せず通常どおり起動してください。
 
 ## 羽衣ちゃんを接続する
 

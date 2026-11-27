@@ -15,8 +15,15 @@ internal static class Program
     [STAThread]
     public static void Main()
     {
-        var app = new App();
-        app.InitializeComponent();
+        // A real Desktop App schedules OnStartup on the dispatcher. The
+        // Loaded retry below pumps that dispatcher; production startup here
+        // would open the user's data directory and take its instance lock.
+        // Load the same styles without ever constructing a production App.
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/HagoromoChan.Desktop;component/DesktopResources.xaml", UriKind.Relative)
+        });
         var type = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
         var owner = new Window { WindowStartupLocation = WindowStartupLocation.Manual, Width = 132, Height = 140, ShowActivated = false };
         var panels = Activator.CreateInstance(type, owner, (Action)(() => { }),
