@@ -40,7 +40,6 @@ var tests = new (string Name, Action Run)[]
     ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
     ("Long bubble draft grows, then pages losslessly within chrome and DPI budgets", ConversationUiChecks.DraftHeightAndLosslessPages),
     ("M22 bubble chrome, device-pixel budgets and final-line page boundaries", ConversationUiChecks.BubbleBodyAndFinalLine),
-    ("M35 live history accepts rounded extent but rejects missing visual lines", ConversationUiChecks.HistoryNativeLineExtent),
     ("Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
     ("Conversation stack expands upward and contracts without dropping stored messages", ConversationUiChecks.StackNavigation),
     ("Conversation zone is independent of content and mascot never upscales", ConversationUiChecks.FixedZoneAndSourceSize),

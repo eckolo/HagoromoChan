@@ -3,27 +3,6 @@ using HagoromoChan.Desktop;
 
 internal static class ConversationUiChecks
 {
-    public static void HistoryNativeLineExtent()
-    {
-        const double pitch = 18.625837;
-        const double start = 2.4;
-        foreach (var dpi in new[] { 1.0, 1.25, 1.5, 1.75, 2.0 })
-        {
-            var rows = Enumerable.Range(0, 21).Select(i => start + pitch * i).ToArray();
-            var extent = Math.Round(rows.Length * pitch * dpi) / dpi;
-            True(BubbleLayout.CoversHistoryLineExtent(rows, start, extent, dpi),
-                "Fractional visual stride and rounded scroll extent must not trigger fallback.");
-            True(!BubbleLayout.CoversHistoryLineExtent(rows.Skip(1).ToArray(), start, extent, dpi),
-                "Missing first line must not be treated as complete.");
-            True(!BubbleLayout.CoversHistoryLineExtent(rows.Where((_, i) => i != 8).ToArray(), start, extent, dpi),
-                "Missing middle line must not be treated as complete.");
-            True(!BubbleLayout.CoversHistoryLineExtent(rows[..^1], start, extent, dpi),
-                "Missing last line must not be treated as complete.");
-            True(!BubbleLayout.CoversHistoryLineExtent(rows, start, extent + 2 / dpi, dpi),
-                "Rounding tolerance is bounded to one physical pixel total, not per line.");
-        }
-    }
-
     public static void LosslessPages()
     {
         var text = string.Concat(Enumerable.Repeat("日本語\r\nあ\u3099👩‍💻\n", 40))

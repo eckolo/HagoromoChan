@@ -32,12 +32,14 @@ internal static class Program
         object? Invoke(string name, params object[] args) => type.GetMethod(name, Flags)!.Invoke(panels, args);
         var window = (Window)type.GetProperty("Conversation")!.GetValue(panels)!;
         var root = (FrameworkElement)window.Content;
-        var stack = (StackPanel)type.GetField("_historyStack", Flags)!.GetValue(panels)!;
+        var stack = (Panel)type.GetField("_historyStack", Flags)!.GetValue(panels)!;
         var editor = (TextBox)type.GetProperty("MessageInput")!.GetValue(panels)!;
         var desktop = type.Assembly.GetType("HagoromoChan.Desktop.NativeDesktop", true)!;
         var sideType = type.Assembly.GetType("HagoromoChan.Desktop.OverlaySide", true)!;
         var layout = type.Assembly.GetType("HagoromoChan.Desktop.BubbleLayout", true)!;
+        Phase("owner.Show");
         owner.Show();
+        Phase("owner.Show completed");
         try
         {
             var area = desktop.GetMethod("WorkArea", [typeof(Window)])!.Invoke(null, [owner])!;
@@ -45,7 +47,17 @@ internal static class Program
             var edge = Activator.CreateInstance(area.GetType(), [
                 Px(area, "Right") - 136, Px(area, "Bottom") - 144, 132, 140])!;
             desktop.GetMethod("SetBounds")!.Invoke(null, [owner, edge]);
+            Phase("panels.Attach");
             Invoke("Attach");
+            Phase("panels.Attach completed");
+            void Layout(string stage)
+            {
+                Phase(stage + ": UpdateLayout");
+                window.UpdateLayout();
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                window.UpdateLayout();
+                Phase(stage + ": layout settled");
+            }
             var topic = string.Join("\r\n", Enumerable.Range(1, 10).Select(i =>
                 $"{i:D2} 合成の検証文です。日本語とABC123を混ぜた段落を折り返して表示します。次の行に続く文章を最後まで読めるか確認します。"))
                 + "\r\n最終行：語😀 gypqç";
@@ -58,15 +70,14 @@ internal static class Program
                 new ChatMessage(3, "long", "assistant", longText, "topic-user", DateTimeOffset.UnixEpoch)
             }, Array.Empty<string>());
 
-            (DockPanel Card, Border Frame, Decorator View, TextBox Body) Active()
+            (DockPanel Card, Border Frame, TextBox Body) Active()
             {
                 Require(stack.Children.Count > 0, "Production history card disappeared.");
                 var card = (DockPanel)stack.Children[0];
                 var frame = (Border)card.Children[1];
-                var view = (Decorator)((StackPanel)frame.Child).Children[1];
-                return (card, frame, view, (TextBox)view.Child);
+                return (card, frame, (TextBox)((DockPanel)frame.Child).Children[1]);
             }
-            void ExerciseNativeTextHit(Decorator viewport, TextBox box)
+            void ExerciseNativeTextHit(TextBox box)
             {
                 // The production-shaped, attached read-only TextBox must still
                 // support point-to-text and selection. UI Automation invokes
@@ -74,17 +85,15 @@ internal static class Program
                 var peer = new TextBoxAutomationPeer(box);
                 var provider = peer.GetPattern(PatternInterface.Text) as ITextProvider;
                 Require(provider is not null, "The retained history body lost its native text provider.");
-                var pixel = viewport.PointToScreen(new Point(viewport.ActualWidth / 4, viewport.ActualHeight / 3));
+                Phase("history UIA RangeFromPoint");
+                var pixel = box.PointToScreen(new Point(box.ActualWidth / 4, box.ActualHeight / 3));
                 var hit = provider!.RangeFromPoint(pixel);
                 Require(hit is not null, "The native history TextBox cannot hit-test its live attached viewport.");
                 hit!.ExpandToEnclosingUnit(TextUnit.Character);
                 hit.Select();
                 Require(box.SelectionLength > 0, "Point-to-text did not select content in the retained TextBox.");
+                Phase("history UIA selection completed");
             }
-            double ViewTop(Decorator view) => (double)view.GetType().GetProperty("ViewTop", Flags)!.GetValue(view)!;
-            string Failure(Decorator view) =>
-                (string?)view.GetType().GetProperty("GeometryFailure", Flags)!.GetValue(view) ?? "no geometry diagnostic";
-            bool Known(Decorator view) => (bool)view.GetType().GetProperty("GeometryKnown", Flags)!.GetValue(view)!;
             void InsideClient(FrameworkElement element)
             {
                 var (nativeWidth, nativeHeight) = ((int, int))desktop.GetMethod("ClientSize")!.Invoke(null, [window])!;
@@ -98,82 +107,94 @@ internal static class Program
 
             foreach (var id in new[] { "topic-user", "topic-assistant" })
             {
+                Phase("ShowMessage " + id);
                 Invoke("ShowMessage", id);
-                window.UpdateLayout();
-                // Allow the production Loaded-priority retry before testing
-                // the stabilized user-visible state. Never accept fallback.
-                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
-                window.UpdateLayout();
+                Layout(id);
                 var bounds = desktop.GetMethod("Bounds")!.Invoke(null, [window])!;
                 Require(Px(bounds, "X") >= Px(area, "X") && Px(bounds, "Y") >= Px(area, "Y") &&
                     Px(bounds, "Right") <= Px(area, "Right") && Px(bounds, "Bottom") <= Px(area, "Bottom"),
                     "The native HWND escaped the work area.");
-                var (card, _, view, body) = Active();
+                var (card, _, body) = Active();
                 InsideClient(card);
-                Require(Known(view), $"Production 600-character fixture uses unverified fallback: {Failure(view)}");
-                Require(body.Text == topic, "Production 600-character fixture changed the stored text.");
-                if (body.ActualHeight <= view.ActualHeight)
-                    CheckTailInk(view, body, verifyNegativeControl: false);
-                ExerciseNativeTextHit(view, body);
+                Require(body.Text == topic && body.IsReadOnly, "The production fixture changed its full source.");
+                body.ScrollToEnd();
+                Layout(id + " native end");
+                CheckTailInk(body, "最終行：語😀 gypqç", verifyNegativeControl: id == "topic-user");
+                ExerciseNativeTextHit(body);
             }
 
+            Phase("ShowMessage long");
             Invoke("ShowMessage", "long");
-            window.UpdateLayout();
-            var (_, _, beforeArrows, arrowBody) = Active();
-            var topBefore = ViewTop(beforeArrows);
-            if (arrowBody.ActualHeight > beforeArrows.ActualHeight)
-            {
-                Invoke("MoveHistory", 1);
-                window.UpdateLayout();
-                var (_, _, afterArrows, sameArrowBody) = Active();
-                Require(ReferenceEquals(arrowBody, sameArrowBody) && ViewTop(afterArrows) > topBefore,
-                    "Production down arrow skipped a whole page of the same message.");
-                Invoke("MoveHistory", -1);
-                window.UpdateLayout();
-                var (_, _, returned, _) = Active();
-                Require(ViewTop(returned) == topBefore, "Production up/down was not reversible.");
-            }
-            var gpuScale = VisualTreeHelper.GetDpi(root).DpiScaleX;
-            var width = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [root.ActualWidth, gpuScale])!;
+            Layout("long initial");
+            var (_, _, arrowBody) = Active();
+            Require(arrowBody.Text == longText && arrowBody.ExtentHeight > arrowBody.ViewportHeight,
+                "Long fixture did not require a real native scroll viewport.");
+            var topBefore = arrowBody.VerticalOffset;
+            Invoke("MoveHistory", 1);
+            Layout("long down");
+            Require(ReferenceEquals(Active().Body, arrowBody) && arrowBody.VerticalOffset > topBefore,
+                "Production down arrow advanced the wrong message instead of scrolling its native body.");
+            Invoke("MoveHistory", -1);
+            Layout("long up");
+            Require(Math.Abs(arrowBody.VerticalOffset - topBefore) < .01, "Native up/down was not reversible.");
+
+            var scale = VisualTreeHelper.GetDpi(root).DpiScaleX;
+            var width = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [root.ActualWidth, scale])!;
             double? x = null;
             foreach (var side in new[] { "Right", "Left" })
             {
-                Invoke("SetAnchor", "long", 0);
-                Invoke("RenderHistory", width, 175.0, Enum.Parse(sideType, side), gpuScale);
-                window.UpdateLayout();
-                var (_, frame, page, body) = Active();
+                Invoke("RenderHistory", width, (double)root.ActualHeight, Enum.Parse(sideType, side), scale);
+                Layout("M22 side " + side);
+                var (_, frame, body) = Active();
                 var origin = frame.TranslatePoint(new Point(0, 0), root).X;
                 x ??= origin;
-                Require(Math.Abs(origin - x.Value) <= 1 / gpuScale, "M22 frame moves when only the tail switches sides.");
-                Require(Known(page), $"Long history uses unverified fallback: {Failure(page)}");
-                Require(body.Text == longText && body.LineCount > 1, "CRLF/emoji text lost or not wrapped.");
+                Require(Math.Abs(origin - x.Value) <= 1 / scale, "M22 frame moves when only the tail switches sides.");
+                Require(ReferenceEquals(body, arrowBody), "M22 frame change recreated the retained native body.");
             }
-            for (var i = 0; i < 2; i++)
-            {
-                Invoke("SetAnchor", "long", 0);
-                Invoke("RenderHistory", width, 175.0, Enum.Parse(sideType, "Left"), gpuScale);
-                window.UpdateLayout();
-                var (_, _, first, body) = Active();
-                Require(ViewTop(first) == 0, "The first page did not start at the top.");
-                body.Select(0, 3);
-                // Request the terminal physical page; no character/line replay.
-                // The same TextBox still contains the original trailing CRLF.
-                Invoke("SetAnchor", "long", int.MaxValue);
-                Invoke("RenderHistory", width, 175.0, Enum.Parse(sideType, "Left"), gpuScale);
-                window.UpdateLayout();
-                var (card, _, last, sameBody) = Active();
-                InsideClient(card);
-                Require(ReferenceEquals(first, last) && ReferenceEquals(body, sameBody) &&
-                    sameBody.SelectionLength == 3 && ViewTop(last) > 0 && Known(last),
-                    "Paging recreated the native body, altered selection, or missed its tail.");
-                sameBody.Select(0, 0);
-                CheckTailInk(last, sameBody, verifyNegativeControl: i == 0);
-                ExerciseNativeTextHit(last, sameBody);
-            }
+            arrowBody.Select(0, 3);
+            arrowBody.ScrollToEnd();
+            Layout("long terminal");
+            var (longCard, _, retainedBody) = Active();
+            InsideClient(longCard);
+            Require(ReferenceEquals(arrowBody, retainedBody) && retainedBody.SelectionLength == 3 &&
+                retainedBody.Text == longText && retainedBody.VerticalOffset > 0 &&
+                Math.Abs(retainedBody.VerticalOffset - (retainedBody.ExtentHeight - retainedBody.ViewportHeight)) <= 1 / scale,
+                "Native terminal scrolling lost the original Unicode text, selection or final extent.");
+            retainedBody.Select(0, 0);
+            CheckTailInk(retainedBody, "末尾gypq語", verifyNegativeControl: true);
+            ExerciseNativeTextHit(retainedBody);
 
+            Phase("history: constrained viewport");
+            var room = root.ActualHeight;
+            root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, 220.0]);
+            Layout("long constrained client");
+            Require(ReferenceEquals(Active().Body, retainedBody) && retainedBody.ViewportHeight > 0 &&
+                retainedBody.ViewportHeight < retainedBody.ExtentHeight && root.ActualHeight <= 220.0 + 1 / scale,
+                "The smaller layout did not retain the same bounded native document.");
+            retainedBody.ScrollToEnd();
+            Layout("long constrained terminal");
+            InsideClient(Active().Card);
+            CheckTailInk(retainedBody, "末尾gypq語", verifyNegativeControl: false);
+            root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, room]);
+            Layout("restore native client");
+
+            retainedBody.ScrollToHome();
+            Layout("history older initial cursor");
+            Invoke("MoveHistory", -1);
+            Layout("history older document");
+            var previous = Active().Body;
+            Require(previous.Text == topic &&
+                Math.Abs(previous.VerticalOffset - Math.Max(0, previous.ExtentHeight - previous.ViewportHeight)) <= 1 / scale,
+                "Crossing into the older history item did not land at its native end.");
+            Invoke("MoveHistory", 1);
+            Layout("history newer document");
+            Require(Active().Body.Text == longText && Active().Body.VerticalOffset <= 1 / scale,
+                "Crossing into the newer history item did not land at its native beginning.");
+
+            Phase("SetDraftText and OpenBoth");
             Invoke("SetDraftText", longText);
             Invoke("OpenBoth");
-            window.UpdateLayout();
+            Layout("draft initial");
             var composer = (FrameworkElement?)type.GetField("_composerBubble", Flags)!.GetValue(panels);
             Require(composer?.IsVisible == true, "Live composer missing.");
             InsideClient(composer!);
@@ -181,7 +202,7 @@ internal static class Program
                 "Composer no longer contains the full original text or gained a width-changing scrollbar.");
             editor.CaretIndex = editor.Text.Length;
             editor.ScrollToEnd();
-            window.UpdateLayout();
+            Layout("draft terminal");
             var end = editor.GetRectFromCharacterIndex(editor.Text.Length, trailingEdge: true);
             Require(editor.ExtentHeight > editor.ViewportHeight && editor.VerticalOffset > 0 &&
                 !end.IsEmpty && end.Bottom <= editor.ActualHeight,
@@ -196,67 +217,84 @@ internal static class Program
         }
     }
 
-    private static void CheckTailInk(Decorator view, TextBox body, bool verifyNegativeControl)
+    private static void Phase(string phase)
     {
-        var dpi = VisualTreeHelper.GetDpi(view);
-        var bodyOrigin = body.TranslatePoint(new Point(0, 0), view);
-        var width = view.ActualWidth;
-        var height = Math.Max(view.ActualHeight, bodyOrigin.Y + body.ActualHeight) + 2 / dpi.DpiScaleY;
-        // Render the same visual twice into the same pixel grid, changing
-        // only the viewport clip. An isolated render of its child may have a
-        // different text rasterization origin even at the same DPI.
-        RenderTargetBitmap Capture()
-        {
-            var w = Math.Max(1, (int)Math.Ceiling(width * dpi.DpiScaleX));
-            var h = Math.Max(1, (int)Math.Ceiling(height * dpi.DpiScaleY));
-            var bitmap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-            bitmap.Render(view);
-            return bitmap;
-        }
+        Console.WriteLine("M35 STAGE: " + phase);
+        Console.Out.Flush();
+    }
 
-        static int LastAlpha(BitmapSource bitmap)
+    private static void CheckTailInk(TextBox body, string finalLine, bool verifyNegativeControl)
+    {
+        Phase("native ink capture");
+        // Reference: a separate ordinarily laid-out native TextBox holding only
+        // the final explicit line, not another measure of the production body.
+        // Compare the last uninterrupted glyph row band (including descenders).
+        var reference = new TextBox
         {
-            var w = bitmap.PixelWidth;
-            var h = bitmap.PixelHeight;
-            var bytes = new byte[w * h * 4];
-            bitmap.CopyPixels(bytes, w * 4, 0);
-            for (var y = h - 1; y >= 0; y--)
-                for (var x = 0; x < w; x++)
-                    if (bytes[(y * w + x) * 4 + 3] >= 32) return y;
-            return -1;
-        }
-
-        var clipToBounds = view.ClipToBounds;
-        var savedClip = view.Clip;
-        Require(clipToBounds, "Production history viewport is not clipping at its bounds.");
-        var normalBottom = LastAlpha(Capture());
+            Text = finalLine, FontFamily = body.FontFamily, FontSize = body.FontSize,
+            FontWeight = body.FontWeight, FontStretch = body.FontStretch, FontStyle = body.FontStyle,
+            Foreground = body.Foreground, Background = Brushes.Transparent, UseLayoutRounding = true,
+            BorderThickness = new Thickness(0), Padding = new Thickness(0), IsReadOnly = true,
+            Width = body.ActualWidth, TextWrapping = body.TextWrapping,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        var p = body.PointToScreen(new Point(0, 0));
+        var dpi = VisualTreeHelper.GetDpi(body);
+        var window = new Window
+        {
+            Left = p.X / dpi.DpiScaleX, Top = p.Y / dpi.DpiScaleY,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Width = body.ActualWidth, Height = 70, ShowActivated = false,
+            ShowInTaskbar = false, WindowStyle = WindowStyle.None, Content = reference
+        };
+        window.Show();
         try
         {
-            view.Clip = null;
-            view.ClipToBounds = false;
-            view.UpdateLayout();
-            Require(VisualTreeHelper.GetClip(view) is null, "The same-origin reference viewport still has a clip.");
-            Require(body.TranslatePoint(new Point(0, 0), view) == bodyOrigin,
-                "Toggling the test clip moved the native text.");
-            var reference = Capture();
-            var referenceBottom = LastAlpha(reference);
-            Require(referenceBottom >= 0 && normalBottom == referenceBottom,
-                $"Terminal ink differs in the same viewport: unclipped row {referenceBottom}, shown row {normalBottom}.");
-            if (!verifyNegativeControl) return;
-
-            // Test the detector with an exact device-pixel crop of the same
-            // raster. An extra live WPF DIPs clip is not an independent oracle:
-            // it can snap/antialias at a different device-pixel edge.
-            Require(referenceBottom > 0, "The clipping fixture has no painted rows to crop.");
-            var cropped = new CroppedBitmap(reference, new Int32Rect(0, 0, reference.PixelWidth, referenceBottom));
-            Require(LastAlpha(cropped) < referenceBottom, "One-device-pixel clipping negative control was not detected.");
+            window.UpdateLayout();
+            Require(VisualTreeHelper.GetDpi(reference).DpiScaleY == dpi.DpiScaleY,
+                "Reference marker is not on the production DPI.");
+            int TailBand(TextBox text, int? pixelHeight = null)
+            {
+                var w = Math.Max(1, (int)Math.Ceiling(text.ActualWidth * dpi.DpiScaleX));
+                var h = pixelHeight ?? Math.Max(1, (int)Math.Ceiling(text.ActualHeight * dpi.DpiScaleY));
+                var bitmap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+                bitmap.Render(text);
+                return LastBand(bitmap).Rows;
+            }
+            static (int Bottom, int Rows) LastBand(BitmapSource bitmap)
+            {
+                var w = bitmap.PixelWidth;
+                var h = bitmap.PixelHeight;
+                var bytes = new byte[w * h * 4];
+                bitmap.CopyPixels(bytes, w * 4, 0);
+                int bottom = -1, rows = 0;
+                for (var y = h - 1; y >= 0; y--)
+                {
+                    var ink = false;
+                    for (var ix = 0; ix < w; ix++)
+                        if (bytes[(y * w + ix) * 4 + 3] >= 32) { ink = true; break; }
+                    if (!ink && bottom >= 0) break;
+                    if (ink) { if (bottom < 0) bottom = y; rows++; }
+                }
+                return (bottom, rows);
+            }
+            var expected = TailBand(reference);
+            var wb = (int)Math.Ceiling(body.ActualWidth * dpi.DpiScaleX);
+            var hb = (int)Math.Ceiling(body.ActualHeight * dpi.DpiScaleY);
+            var actual = new RenderTargetBitmap(wb, hb, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+            actual.Render(body);
+            var (bottom, rows) = LastBand(actual);
+            Require(expected >= 4 && rows == expected,
+                $"Final native glyph band loses pixels: reference {expected}, shown {rows}.");
+            if (verifyNegativeControl)
+            {
+                var cropped = new CroppedBitmap(actual, new Int32Rect(0, 0, wb, bottom));
+                Require(LastBand(cropped).Rows != expected, "One-device-pixel crop was not detected.");
+            }
         }
-        finally
-        {
-            view.Clip = savedClip;
-            view.ClipToBounds = clipToBounds;
-            view.UpdateLayout();
-        }
+        finally { window.Close(); }
+        Phase("native ink capture completed");
     }
 
     private static void Require(bool condition, string message)
