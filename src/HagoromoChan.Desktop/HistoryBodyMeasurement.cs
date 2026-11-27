@@ -11,54 +11,70 @@ internal sealed record HistoryBodyMeasurement(double FullHeight, HistoryExcerpt[
     public bool CanCollapse => Excerpts.Length != 0;
     public HistoryExcerpt Preview => Excerpts[^1];
 
-    public static HistoryBodyMeasurement Measure(TextBox probe, string text, double width, DpiScale dpi, int lines)
-    {
-        VisualTreeHelper.SetRootDpi(probe, dpi);
-        probe.Width = probe.MaxWidth = width;
-        var space = new Size(width, double.PositiveInfinity);
-        probe.Text = text;
-        probe.Measure(space);
-        var full = probe.DesiredSize.Height;
+    // WPF's TextBoxView reserves CaretElement.BidiCaretIndicatorWidth on
+    // each side of the line box. Match that layout input without reading a
+    // control theme/template that may not exist before the first HWND layout.
+    private const double NativeCaretGutter = 2.0;
 
-        // Ask WPF's text formatter for actual wrap break positions. Unlike
-        // TextBox character-at-line helpers this doesn't need an arranged native
-        // editor or use a guessed pixel point near the line's midpoint.
-        probe.ApplyTemplate();
-        var editor = (probe.Template.FindName("PART_ContentHost", probe) as ScrollViewer)?.Content as FrameworkElement;
-        var gutter = editor is null ? 0 : editor.Margin.Left + editor.Margin.Right;
-        var available = Math.Max(1, width - gutter - probe.Padding.Left - probe.Padding.Right -
-            probe.BorderThickness.Left - probe.BorderThickness.Right);
-        var run = new RunStyle(probe) { PixelsPerDip = dpi.PixelsPerDip };
-        var source = new HistoryTextSource(text, run) { PixelsPerDip = dpi.PixelsPerDip };
-        var paragraph = new ParagraphStyle(probe, run);
-        var excerpts = new List<HistoryExcerpt>(lines);
-        using var formatter = TextFormatter.Create(TextOptions.GetTextFormattingMode(probe));
-        TextLineBreak? continuation = null;
-        var index = 0;
+    public static HistoryBodyMeasurement Measure(TextBox style, string text, double width, DpiScale dpi, int lines)
+    {
         try
         {
-            for (var count = 0; count <= lines; count++)
+            return FormatLines(style, text, width, dpi, lines);
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            // Preview failures never hide the source body or stop the window.
+            // Keep the actual native full-text rendering, not a guessed excerpt.
+            System.Diagnostics.Trace.TraceWarning("History preview unavailable: {0}", error.GetType().Name);
+            return new(double.PositiveInfinity, []);
+        }
+    }
+
+    private static HistoryBodyMeasurement FormatLines(TextBox style, string text, double width, DpiScale dpi, int lines)
+    {
+        var available = Math.Max(1, width - 2 * NativeCaretGutter - style.Padding.Left - style.Padding.Right -
+            style.BorderThickness.Left - style.BorderThickness.Right);
+        var run = new RunStyle(style) { PixelsPerDip = dpi.PixelsPerDip };
+        var source = new HistoryTextSource(text, run) { PixelsPerDip = dpi.PixelsPerDip };
+        var paragraph = new ParagraphStyle(style, run);
+        var excerpts = new List<HistoryExcerpt>(lines);
+        using var formatter = TextFormatter.Create(TextOptions.GetTextFormattingMode(style));
+        TextLineBreak? continuation = null;
+        var index = 0;
+        var height = 0.0;
+        var count = 0;
+        double RoundHeight(double value) => Math.Ceiling(value * dpi.DpiScaleY) / dpi.DpiScaleY;
+        try
+        {
+            for (;;)
             {
                 using var line = formatter.FormatLine(source, index, available, paragraph, continuation);
                 continuation?.Dispose();
                 continuation = null;
-                if (count == lines) return new(full, excerpts.ToArray());
-                if (line.Length <= 0) break;
-                var end = index + line.Length;
-                if (end > text.Length || end == text.Length && line.NewlineLength == 0) break;
-                var visibleEnd = end;
-                if (visibleEnd > index && text[visibleEnd - 1] == '\n') visibleEnd--;
-                if (visibleEnd > index && text[visibleEnd - 1] == '\r') visibleEnd--;
-                var excerpt = text[..visibleEnd];
-                probe.Text = excerpt;
-                probe.Measure(space);
-                excerpts.Add(new(excerpt, probe.DesiredSize.Height));
-                index = end;
+                if (line.Length <= 0) throw new InvalidOperationException("History line formatting did not advance.");
+                var next = index + line.Length;
+                var end = Math.Min(next, text.Length);
+                height += line.Height;
+                count++;
+                if (count <= lines)
+                {
+                    var visibleEnd = end;
+                    if (visibleEnd > index && text[visibleEnd - 1] == '\n') visibleEnd--;
+                    if (visibleEnd > index && text[visibleEnd - 1] == '\r') visibleEnd--;
+                    excerpts.Add(new(text[..visibleEnd], RoundHeight(height)));
+                }
+                // A real final newline has a visible empty line after it.
+                // A synthetic end-of-paragraph marker lies beyond the text.
+                if (next > text.Length || next == text.Length &&
+                    (end == 0 || text[end - 1] is not ('\r' or '\n')))
+                    break;
+                index = next;
                 continuation = line.GetTextLineBreak();
             }
         }
         finally { continuation?.Dispose(); }
-        return new(full, []);
+        return new(RoundHeight(height), count > lines ? excerpts.ToArray() : []);
     }
 
     private sealed class HistoryTextSource(string text, RunStyle style) : TextSource
@@ -73,7 +89,7 @@ internal sealed record HistoryBodyMeasurement(double FullHeight, HistoryExcerpt[
         {
             var length = Math.Min(limit, text.Length);
             return new(length, new CultureSpecificCharacterBufferRange(style.CultureInfo,
-                new CharacterBufferRange(text, 0, length)));
+                length == 0 ? CharacterBufferRange.Empty : new CharacterBufferRange(text, 0, length)));
         }
 
         public override int GetTextEffectCharacterIndexFromTextSourceCharacterIndex(int index) => index;

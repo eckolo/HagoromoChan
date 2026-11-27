@@ -39,6 +39,24 @@ internal static class Program
         var desktop = type.Assembly.GetType("HagoromoChan.Desktop.NativeDesktop", true)!;
         var sideType = type.Assembly.GetType("HagoromoChan.Desktop.OverlaySide", true)!;
         var layout = type.Assembly.GetType("HagoromoChan.Desktop.BubbleLayout", true)!;
+        // A history card can be measured before its theme template exists.
+        // Keep the startup regression in the same Windows conversation test.
+        Phase("History metrics before template");
+        var measuringBody = (TextBox)type.GetMethod("HistoryBodyBox", Flags | BindingFlags.Static)!.Invoke(null, null)!;
+        measuringBody.Template = null;
+        var metricsType = type.Assembly.GetType("HagoromoChan.Desktop.HistoryBodyMeasurement", true)!;
+        var metrics = metricsType.GetMethod("Measure")!.Invoke(null,
+            [measuringBody, "一行目\r\n二行目\r\n三行目\r\n四行目", 220d, new DpiScale(1, 1), 3])!;
+        var previews = (Array)metricsType.GetProperty("Excerpts")!.GetValue(metrics)!;
+        var full = (double)metricsType.GetProperty("FullHeight")!.GetValue(metrics)!;
+        Require(measuringBody.Template is null && previews.Length == 3 && double.IsFinite(full) && full > 0,
+            "An untemplated history body could not produce three whole-line previews.");
+        var third = previews.GetValue(2)!;
+        var preview = (string)third.GetType().GetProperty("Text")!.GetValue(third)!;
+        var previewHeight = (double)third.GetType().GetProperty("Height")!.GetValue(third)!;
+        Require(preview == "一行目\r\n二行目\r\n三行目" && previewHeight > 0 && previewHeight < full,
+            "Pre-template formatting miscounted explicit line breaks or the expanded/preview heights.");
+
         Phase("owner.Show");
         owner.Show();
         Phase("owner.Show completed");
