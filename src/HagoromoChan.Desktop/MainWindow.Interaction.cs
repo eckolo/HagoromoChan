@@ -46,13 +46,13 @@ public partial class MainWindow : Window
 
     private void BeginPointer(object sender, MouseButtonEventArgs e)
     {
-        if (!_initialized || _pointerDown)
+        if (!_initialized || _pointerDown || _exitRequested)
             return;
         _dragStart = NativeDesktop.Cursor();
         _dragAnchor = NativeDesktop.Bounds(this);
         _pointerDown = Mouse.Capture(MascotSurface);
         _dragging = false;
-        RefreshReactionSuspension(closingClick: _pointerDown && ConversationVisible);
+        RefreshReactionSuspension();
         e.Handled = true;
     }
 
@@ -92,7 +92,7 @@ public partial class MainWindow : Window
         _dragging = false;
         if (Mouse.Captured == MascotSurface)
             Mouse.Capture(null);
-        RefreshReactionSuspension(closingClick: clicked && ConversationVisible);
+        RefreshReactionSuspension();
         e.Handled = true;
         if (moved)
             RememberPosition();
@@ -246,7 +246,7 @@ public partial class MainWindow : Window
 
     private void OpenSettings()
     {
-        if (!_initialized || _closing)
+        if (!_initialized || _closing || _exitRequested)
             return;
         var menu = new ContextMenu
         {

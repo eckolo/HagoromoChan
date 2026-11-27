@@ -50,6 +50,60 @@ internal static class DesktopUiChecks
         }
     }
 
+    public static void HistoryReadGestures()
+    {
+        var history = new List<ChatMessage> { User(1, "old-question") };
+        var state = new DesktopPreferences();
+        state.Observe(history, 1);
+        history.AddRange([Reply(2, "hidden"), Reply(3, "long"), Reply(4, "short"),
+            User(5, "pending-question"), Reply(6, "clipped")]);
+        state.Observe(history, 6);
+        var longFirst = new HistoryPageIdentity("long", 0, 50);
+        var longLast = new HistoryPageIdentity("long", 50, 70);
+        var shortPage = new HistoryPageIdentity("short", 0, 40);
+        var pending = new HistoryPageIdentity("pending-question", 0, 20);
+        var clipped = new HistoryPageIdentity("clipped", 0, 60);
+        var offered = new[] { longLast, shortPage, pending, clipped };
+        var layout = new HashSet<HistoryPageIdentity> { longLast, shortPage, pending };
+        string[] Targets(HistoryReadGesture gesture, bool active = true, bool focus = false) =>
+            HistoryReadPolicy.Targets(gesture, active, focus, [], offered, layout, state.UnreadIds);
+
+        Equal(0, Targets(HistoryReadGesture.Passive).Length);
+        Equal(0, Targets(HistoryReadGesture.Activation, active: false).Length);
+        Equal(0, Targets(HistoryReadGesture.Activation, focus: true).Length);
+        True(Targets(HistoryReadGesture.Activation).SequenceEqual(new[] { "long", "short" }),
+            "Visible first or later pages clear an answer once, without clearing a clipped card or a user message.");
+        Equal(0, HistoryReadPolicy.Targets(HistoryReadGesture.Navigation, true, false,
+            offered, offered, layout, state.UnreadIds).Length);
+
+        // A receive between the action and WPF's arranged snapshot isn't licensed by
+        // that earlier action. An effective navigation may also be non-activating.
+        history.Add(Reply(7, "arrived-later"));
+        state.Observe(history, 7);
+        layout.Add(new HistoryPageIdentity("arrived-later", 0, 40));
+        layout.Add(longFirst);
+        var navigated = HistoryReadPolicy.Targets(HistoryReadGesture.Navigation, false, false,
+            [longFirst], [longFirst, .. offered], layout, state.UnreadIds);
+        True(navigated.SequenceEqual(new[] { "long", "short" }),
+            "Any shown page counts once; undisplayed and late-arriving replies remain new.");
+        state.UnreadIds.ExceptWith(navigated);
+        Equal(7L, state.ObservedSequence!.Value);
+        Equal("arrived-later", state.ObservedId);
+
+        var directory = Path.Combine(Path.GetTempPath(), "hagoromo-m14-check", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new DesktopPreferencesStore(directory);
+            store.Save(state);
+            var reopened = store.Load();
+            True(!reopened.Observe(history, 7), "Replaying the same history cannot revive viewed answers.");
+            True(reopened.UnreadIds.SetEquals(new[] { "hidden", "clipped", "arrived-later" }),
+                "Only unopened or clipped replies remain new after restart.");
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     public static void Preferences()
     {
         var history = new List<ChatMessage> { User(1, "old-question"), Reply(2, "old-answer") };

@@ -468,14 +468,18 @@ public partial class MainWindow : Window
         var answer = messages.FirstOrDefault(message => _preferences.UnreadIds.Contains(message.Id))
             ?? messages.LastOrDefault();
         if (answer is not null)
-            ChangeConversationByUser(() => _panels.ShowMessage(answer.Id));
+            ChangeConversationByUser(() => _panels.OpenUnreadMessage(answer.Id));
         RefreshStatus();
     }
 
-    private void MarkRead(string id)
+    private void MarkRead(IReadOnlyList<string> ids)
     {
-        if (_preferences.UnreadIds.Remove(id))
-            SavePreferences();
+        var changed = false;
+        foreach (var id in ids)
+            changed |= _preferences.UnreadIds.Remove(id);
+        if (!changed)
+            return;
+        SavePreferences();
         RefreshHistory();
         RefreshStatus();
     }

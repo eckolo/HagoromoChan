@@ -10,8 +10,8 @@
 | MGMT-02 | main 統合規則の改定・アプリマイルストーン登録 | 管理基盤 | MGMT-01 | `milestone/MGMT-02-merge-policy-and-roadmap` | [MGMT-02](milestones/MGMT-02.md) |
 | M03 | 羽衣ちゃんの表示・ウィンドウの見た目の調整 | 最高 | 未確定（下記参照） | `milestone/M03-character-and-window-ui` | [M03](milestones/M03.md) |
 | M04 | Dotからの能動的な発言 | 高 | 未確定（下記参照） | `milestone/M04-dot-proactive-messages` | [M04](milestones/M04.md) |
-| M05 | 他会話の回答受信・会話管理基盤 | 高 | M03・M04（完了）、M08の実行基盤 | `milestone/M05-other-conversations` | [M05](milestones/M05.md) |
-| M06 | 通信状態の管理・障害復旧 | 中 | M03 の基本 UI（完了）、詳細依存は設計時に確認 | `milestone/M06-connection-status` | [M06](milestones/M06.md) |
+| M05 | 他会話の回答受信・会話管理基盤 | 高（Workのひな型を先行、Chat調査は独立） | M03・M04（完了）、M08の実行基盤 | `milestone/M05-other-conversations` | [M05](milestones/M05.md) |
+| M06 | 通信状態の管理・障害復旧と購読窓の表示 | 中 | M03 の基本 UI（完了）、詳細依存は設計時に確認 | `milestone/M06-connection-status` | [M06](milestones/M06.md) |
 | MGMT-07 | デスクトップ追加機能のマイルストーン登録 | 管理基盤 | MGMT-02 | `milestone/MGMT-07-register-desktop-behaviors` | [MGMT-07](milestones/MGMT-07.md) |
 | M08 | 起動・終了管理とスタートアップによる自動起動 | 高 | M03 の基本 UI を先行（詳細依存は未確定） | `milestone/M08-startup` | [M08](milestones/M08.md) |
 | M09 | メッセージ・マウスイベントに応じた羽衣ちゃんのアクション | 中（早期並行着手候補） | M03（表示・操作） | `milestone/M09-character-reactions` | [M09](milestones/M09.md) |
@@ -23,8 +23,37 @@
 | MGMT-15 | M04・M06の優先度改定とM09の早期並行着手方針 | 管理基盤 | MGMT-13、M08 | `milestone/MGMT-15-reprioritize-proactive-and-reactions` | [MGMT-15](milestones/MGMT-15.md) |
 | MGMT-16 | M06への購読元接続不一致・ツール更新後の復旧課題の追記 | 管理基盤 | MGMT-15 | `milestone/MGMT-16-record-subscription-connection-mismatch` | [MGMT-16](milestones/MGMT-16.md) |
 | MGMT-17 | 他会話アクセスの3分割・クラウド対象限定 | 管理基盤 | MGMT-16、M04 | `milestone/MGMT-17-split-cloud-conversation-access` | [MGMT-17](milestones/MGMT-17.md) |
-| M18 | 複数会話スレッドの切り替えUI | 高 | M03、M05 | `milestone/M18-conversation-switching-ui` | [M18](milestones/M18.md) |
+| M18 | 複数会話スレッドの切り替えUI・起動時の入力窓 | 高 | M03、M05 | `milestone/M18-conversation-switching-ui` | [M18](milestones/M18.md) |
 | M19 | 他会話への発言送信 | 高 | M05、M18 | `milestone/M19-cloud-conversation-send` | [M19](milestones/M19.md) |
+| MGMT-20 | M18へ起動時の入力窓の改善を記録 | 管理 | M18の登録 | `milestone/MGMT-20-record-startup-input` | [MGMT-20](milestones/MGMT-20.md) |
+| M21 | キャラクターアクションの順番・中断制御と終了演出 | 優先度は着手時に確認 | M09、終了経路はM08 | `milestone/M21-action-sequencing` | [M21](milestones/M21.md) |
+| M22 | 会話吹き出しの本文枠の位置合わせ・長文表示 | 優先度は着手時に確認 | M03 | `milestone/M22-bubble-body-alignment` | [M22](milestones/M22.md) |
+| MGMT-23 | M05の作業分離とSSP追加要望の登録 | 管理 | MGMT-20、M05・M03・M08・M09の定義 | `milestone/MGMT-23-register-ssp-followups` | [MGMT-23](milestones/MGMT-23.md) |
+| MGMT-24 | M22に長文最終行のはみ出し修正を記録 | 管理 | M22の登録 | `milestone/MGMT-24-record-bubble-overflow` | [MGMT-24](milestones/MGMT-24.md) |
+
+| MGMT-25 | 履歴表示・背景透過・画像送受信の追加要望を登録 | 管理 | MGMT-24、M14・M22の定義 | `milestone/MGMT-25-register-history-timeout-and-window-opacity` | [MGMT-25](milestones/MGMT-25.md) |
+| M26 | 新着でない履歴カードの時間経過による非表示 | 優先度は着手時に確認 | M03、M14の新着判定と整合 | `milestone/M26-history-card-timeout` | [M26](milestones/M26.md) |
+| M27 | 会話履歴窓・入力窓の背景透過 | 優先度は着手時に確認 | M03、M22の表示と整合 | `milestone/M27-conversation-window-opacity` | [M27](milestones/M27.md) |
+
+| M28 | 会話履歴のMarkdown表示 | 優先度は着手時に確認 | M03、M22の改ページと整合 | `milestone/M28-history-markdown` | [M28](milestones/M28.md) |
+| M29 | 画像ファイルの送受信 | 優先度は着手時に確認 | M03、M04の送受信。追加連携は設計時に確認 | `milestone/M29-image-attachments` | [M29](milestones/M29.md) |
+
+| MGMT-30 | 継続指示の記録・再確認と動作確認の依頼ルール | 管理 | MGMT-25 | `milestone/MGMT-30-record-standing-verification-rules` | [MGMT-30](milestones/MGMT-30.md) |
+| MGMT-31 | 購読窓の表示調整と履歴ブックマークの登録 | 管理 | MGMT-30、M06 | `milestone/MGMT-31-register-status-and-bookmarks` | [MGMT-31](milestones/MGMT-31.md) |
+| M32 | 会話履歴のブックマークと呼び出し | 優先度は着手時に確認 | M03・M14、M26／M18との整合を確認 | `milestone/M32-history-bookmarks` | [M32](milestones/M32.md) |
+| M33 | 状況に応じたキャラクターアクションの選択 | 優先度は着手時に確認 | M21（再生・中断）、移動の統合にはM10 | `milestone/M33-contextual-action-selection` | [M33](milestones/M33.md) |
+| MGMT-34 | M21の範囲変更と状況に応じた動作選択の登録 | 管理 | M21、MGMT-31 | `milestone/MGMT-34-split-action-selection` | [MGMT-34](milestones/MGMT-34.md) |
+| M35 | 長文の会話窓の高さ調整と全文表示 | 優先度は着手時に確認 | M03・M22（既存UI・左右位置） | `milestone/M35-bubble-text-fit` | [M35](milestones/M35.md) |
+| MGMT-36 | 長文の会話窓の再発対応を登録 | 管理 | M22、MGMT-34 | `milestone/MGMT-36-register-bubble-text-fit` | [MGMT-36](milestones/MGMT-36.md) |
+| M37 | 羽衣ちゃんのイラストの髪の隙間の透過修正 | 優先度は着手時に確認 | M03の立ち絵、M09のアクション素材 | `milestone/M37-hair-gap-alpha` | [M37](milestones/M37.md) |
+| MGMT-38 | イラストの透過修正を登録 | 管理 | MGMT-36 | `milestone/MGMT-38-register-hair-gap-alpha` | [MGMT-38](milestones/MGMT-38.md) |
+| MGMT-39 | キャラクター動作の拡張方針を恒久化 | 管理 | M21、MGMT-30 | `milestone/MGMT-39-action-extensibility-rule` | [MGMT-39](milestones/MGMT-39.md) |
+| MGMT-40 | キャラクターアクションの追加計画と運用を登録 | 管理 | MGMT-39、M33 | `milestone/MGMT-40-register-character-action-followups` | [MGMT-40](milestones/MGMT-40.md) |
+| M41 | アプリ起動時のキャラクターアクション | 優先度は着手時に確認 | M08・M09・M21（完了） | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
+| MGMT-42 | 履歴発言の折りたたみを登録 | 管理 | MGMT-40 | `milestone/MGMT-42-register-history-collapse` | [MGMT-42](milestones/MGMT-42.md) |
+| M43 | 履歴の発言ごとの折りたたみ表示 | 優先度は着手時に確認 | M03・M22、M35と整合 | `milestone/M43-history-message-collapse` | [M43](milestones/M43.md) |
+| MGMT-44 | 共通テスト基盤の計画を登録 | 管理 | MGMT-42 | `milestone/MGMT-44-register-shared-test-runner` | [MGMT-44](milestones/MGMT-44.md) |
+| M45 | 自動テストの共通実行基盤 | 最優先 | MGMT-44 | `milestone/M45-shared-test-runner` | [M45](milestones/M45.md) |
 
 ## 着手順と依存
 
@@ -36,8 +65,12 @@
 - 2026-11-26 の追加指示（MGMT-16）により、M04で受領したツール更新後の購読元接続不一致をM06の障害例・追加完了条件として記録する。M06の中優先度・未着手は維持する。
 - M14 は履歴のアクティブ化・スクロール操作による新着解除を扱う。M06 の通信状態の区別・障害復旧とは分離し、低優先度とする。M03 の完了は維持する。
 - 2026-11-26 のユーザー承認（MGMT-17）により、M05を高優先度の他会話の回答受信・会話管理基盤へ改定し、M18（複数会話スレッドの切り替えUI）、M19（他会話への発言送信）を高優先度で登録する。当面の外部会話対象はクラウドChat／クラウドWorkのみ。ローカルWorkは対象外。M05の初期工程で受信・将来の送信先識別の実現可能性を種別ごとに調査し、対応不能な範囲はユーザーとの合意を経て変更する。M05 → M18 → M19の順に基盤と実装・統合を進める。M09は既存担当で継続し、M05の調査と並行できるが共有箇所の実装は調整する。M06・M09は中、M10・M14は低のまま維持する。今回の3分割は定義・登録のみであり、アプリ実装の着手・新たな会話の作成は別途行う。
-- 10件のアプリ本体マイルストーンの名称・目的・優先度はユーザーの提示・承認に基づく。詳細な仕様・完了条件は着手時に確定する。個別記録の完了条件は暫定案であり、未承認の仕様追加を意味しない。
+- MGMT-23: M05のクラウドWork取得と通常Chat本文調査を別作業として追跡する。Workのひな型を先行し、Chat調査は余力があるときに並行する。操作はSSP内で完結し、M05全体の完了条件は縮小しない。M21はM09、M22はM03と関連するが、いずれも完了済み範囲の履歴を開き直さない後続項目とする。M21の終了演出はM08の正常終了経路と協調する。
+- MGMT-25: 履歴カードの時間経過による非表示は M26、履歴窓・入力窓の背景透過は M27。M14 は閲覧操作による新着解除のまま、M22 は位置合わせ・長文表示のまま。Markdown表示は M28、画像ファイル送受信は M29。共有する表示箇所は統合時に回帰を確認する。
+- アプリ本体マイルストーンの名称・目的・優先度はユーザーの提示・承認に基づく。詳細な仕様・完了条件は着手時に確定する。個別記録の完了条件は暫定案であり、未承認の仕様追加を意味しない。
 - 既存の通信実証は現行実装の成果として扱い、新たなアプリ本体マイルストーンにはしない。
+- M45 を最優先とし、現行ソースの自動テストを共通の入口へまとめる。画面機能の修正や他のマイルストーンの完了条件を置き換えない。
+
 
 ## 更新方針
 

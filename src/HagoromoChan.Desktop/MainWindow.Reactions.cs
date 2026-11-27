@@ -9,7 +9,7 @@ namespace HagoromoChan.Desktop;
 public partial class MainWindow
 {
     private readonly ReactionInbox _reactionInbox = new();
-    private readonly CharacterReactionState _reactions = new();
+    private readonly CharacterReactionState _reactions;
     private readonly WindowActivityGaze _windowGaze = new();
     private readonly CursorGaze _cursorGaze = new();
     private readonly CharacterReactionArtwork _reactionArtwork;
@@ -40,15 +40,20 @@ public partial class MainWindow
     {
         if (_reactionsClosed || !_initialized) return;
         _reactions.SetEnabled(AnimationsEnabled, Environment.TickCount64);
+        if (_localExitQueued)
+        {
+            if (_reactions.ShutdownReady)
+                FinishLocalExit();
+            return;
+        }
         RefreshReactionSuspension();
     }
 
-    private void RefreshReactionSuspension(bool closingClick = false)
+    private void RefreshReactionSuspension()
     {
-        if (!_initialized || _reactionsClosed) return;
-        var menuOpen = _contextMenu is { IsOpen: true };
-        var suspended = _pointerDown || menuOpen;
-        _reactions.Suspend(suspended, Environment.TickCount64, closingClick && !menuOpen);
+        if (!_initialized || _reactionsClosed || _localExitQueued) return;
+        var suspended = _pointerDown || _contextMenu is { IsOpen: true };
+        _reactions.Suspend(suspended, Environment.TickCount64, dragging: _dragging);
         if (!AnimationsEnabled || suspended)
         {
             _reactionTimer.Stop();
@@ -94,53 +99,54 @@ public partial class MainWindow
         try
         {
             var now = Environment.TickCount64;
-            var frame = _reactions.Sample(now);
             (double X, double Y)? target = null;
-            if (_historyLoaded && frame.Pose != ReactionPose.Still && _lastBounds is { } bounds
-                && (_reactions.WaitingForReply || !_connectionProblem))
+            (double X, double Y)? cursorDirection = null;
+            var waiting = _reactions.WaitingForReply;
+            if (!_localExitQueued && AnimationsEnabled && !_pointerDown && _contextMenu is not { IsOpen: true }
+                && _lastBounds is { } mascot)
             {
-                _gazeSampling = true;
-                target = _windowGaze.Sample(bounds);
+                var cursor = NativeDesktop.TryCursor();
+                if (cursor is { } at)
+                    cursorDirection = _cursorGaze.Sample(mascot, _lastScale, at.X, at.Y, now);
+                if (_historyLoaded && (waiting || !_connectionProblem))
+                {
+                    _gazeSampling = true;
+                    target = _windowGaze.Sample(mascot);
+                }
+                else ResetWindowGaze();
             }
-            else
-                ResetWindowGaze();
+            else ResetWindowGaze();
 
-            if (_reactions.WaitingForReply)
-            {
+            // Observations are demand, never an override of the selected frame.
+            _reactions.ObserveCursor(cursorDirection ?? (waiting ? null : target));
+            if (waiting)
                 _reactions.ObserveWindow(target?.X ?? 0, target?.Y ?? 0, now);
-                frame = _reactions.Sample(now);
+
+            var frame = _reactions.Sample(now);
+            if (_localExitQueued && _reactions.ShutdownReady)
+            {
+                FinishLocalExit();
+                return;
             }
+
             var direction = (X: frame.GazeX, Y: frame.GazeY);
             var action = frame.Pose switch
             {
                 ReactionPose.Idle => "idle",
                 ReactionPose.Unread => "unread",
                 ReactionPose.Wave => "waving",
-                ReactionPose.Farewell => "farewell",
+                ReactionPose.Farewell or ReactionPose.Shutdown => "farewell",
                 ReactionPose.Review => "review",
                 ReactionPose.Thinking => "thinking",
                 ReactionPose.Jump => "jumping",
                 ReactionPose.Failed => "failed",
-                ReactionPose.Look => "waiting",
+                ReactionPose.Look => frame.DirectGaze ? "look" : "waiting",
                 _ => "frozen"
             };
-            var progress = frame.DurationMs > 0 ? (double)frame.ElapsedMs / frame.DurationMs : 0;
-            // Direct user input takes precedence over every background pose.
-            if (frame.AllowsGaze && _lastBounds is { } mascot)
-            {
-                var cursor = NativeDesktop.TryCursor();
-                var gaze = cursor is { } at ? _cursorGaze.Sample(mascot, _lastScale, at.X, at.Y, now) : null;
-                var unreadGlance = frame.Pose == ReactionPose.Unread && CharacterReactionState.ShowsUnreadGlance(progress);
-                if (gaze is null && !unreadGlance && !_reactions.WaitingForReply)
-                    gaze = target;
-                if (gaze is { } active)
-                {
-                    direction = active;
-                    action = "look";
-                }
-                else if (unreadGlance)
-                    direction = _panels.UnreadDirection(mascot);
-            }
+            var progress = frame.ArtworkProgress;
+            if (frame.Pose == ReactionPose.Unread && CharacterReactionState.ShowsUnreadGlance(progress)
+                && _lastBounds is { } bounds)
+                direction = _panels.UnreadDirection(bounds);
 
             var image = _reactionArtwork.Frame(action, progress, direction.X, direction.Y);
             if (!ReferenceEquals(image, MascotImage.Source)) MascotImage.Source = image;
@@ -158,6 +164,8 @@ public partial class MainWindow
             ResetWindowGaze();
             _cursorGaze.Reset();
             MascotImage.Source = RestingSilhouette.Source;
+            if (_localExitQueued)
+                FinishLocalExit();
         }
     }
 

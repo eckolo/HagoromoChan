@@ -85,7 +85,7 @@ internal sealed class BundledReactionDrawing
         _drawings.Clear();
     }
 
-    public ImageSource Frame(string action, double progress, double gazeX, double gazeY, long nowMs)
+    public ImageSource Frame(string action, double progress, double gazeX, double gazeY)
     {
         if (action is "look" or "waiting")
         {
@@ -109,7 +109,7 @@ internal sealed class BundledReactionDrawing
 
         // A blink is one brief, drawn expression. Keep the eyes open between blinks.
         if (action == "idle")
-            return nowMs % 4800 >= 4650 ? Draw(Pose.Blink) : RestingImage;
+            return progress >= 4650d / 4800 ? Draw(Pose.Blink) : RestingImage;
         if (progress < .09 || progress >= .92)
             return RestingImage;
 

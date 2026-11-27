@@ -8,61 +8,92 @@ if (args is ["--preview-m05"])
     return;
 }
 
-var tests = new (string Name, Action Run)[]
+var tests = new (string Id, string Name, Action Run)[]
 {
-    ("M05 imports preserve Dot isolation, exact retries and source identity", CloudImportChecks.Run),
-    ("M05 preview fixtures persist separately without touching Dot", CloudImportChecks.PreviewSeed),
-    ("M05 scoped Work wake cannot claim another operation or alter the Dot subscription", CloudImportChecks.WorkWake),
-    ("M05 Work subscription and signing rotation survive restart independently", CloudImportChecks.WorkWakeDurable),
-    ("M05 default MCP advertises scoped import and preserves the legacy tools", CloudImportChecks.DefaultMcp),
-    ("Messages and channel binding persist across a restart", Persistence),
-    ("Identical sends and replies are idempotent, conflicting retries fail", Idempotency),
-    ("Invalid messages and reply destinations are rejected atomically", Validation),
-    ("Paged cursors preserve every message without repeating it", Pagination),
-    ("Retry timing, attempts and event identity survive restart", DurableRetries),
-    ("Pre-subscription messages wait, then follow the first subscription", QueuedBeforeSubscription),
-    ("Expired and revoked subscriptions stop delivery", ExpiredSubscription),
-    ("Pending messages cannot be redirected to another subscriber", SubscriptionBinding),
-    ("A reply racing webhook receipt never regresses or gets sent again", ReplyBeforeReceipt),
-    ("Context includes the request and only messages known at its creation", ContextSnapshot),
-    ("Manual retry resets transient failures while preserving terminal failures", ManualRetries),
-    ("A late failure cannot undo manual retry, including after restart", LateFailureAfterManualRetry),
-    ("A late failure using an old key cannot undo verified renewal", LateFailureAfterRenewal),
-    ("Schema v1 upgrades preserve messages and pending delivery state", GenerationMigration),
-    ("Concurrent retries commit one user message and one answer", ConcurrentRetries),
-    ("MCP protocol, signatures, secure callbacks and two-turn conversation", ProtocolChecks.RunAll),
-    ("Standalone messages persist without changing request or subscription identity", ProactiveChecks.StorePersistence),
-    ("Standalone input validation and concurrent retries are safe", ProactiveChecks.ValidityAndConcurrentRetry),
-    ("MCP standalone message tool is isolated from existing replies", ProactiveChecks.McpTool),
-    ("Standalone messages share unread persistence without duplicate notifications", ProactiveChecks.DesktopUnread),
-    ("Initial history, partial reads and duplicate replies do not replay reactions", CharacterReactionTests.Inbox),
-    ("Character reactions preserve priority, interaction suspension and expiration", CharacterReactionTests.Playback),
-    ("Opening and dismissing conversation use distinct gestures and respect priority", CharacterReactionTests.ConversationGestures),
-    ("Only a short closing click preserves a still-live message reaction", CharacterReactionTests.CloseDuringMessage),
-    ("Unread rest follows reconciled IDs, preserves its phase and yields to active reactions", CharacterReactionTests.Unread),
-    ("Waiting uses a thinking loop, follows activity and resolves only matching replies", CharacterReactionTests.Waiting),
-    ("System, app-only and disabled motion preferences preserve prior choices", CharacterReactionTests.MotionPreferences),
-    ("Nearby cursors hold the gaze across distance and DPI boundaries", CursorGazeTests.Proximity),
-    ("Panel input immediately redirects the gaze and repeated interaction extends it", CursorGazeTests.PanelActivity),
-    ("Desktop overlay placement and work-area bounds", DesktopUiChecks.Placement),
-    ("Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
-    ("Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
-    ("Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
-    ("Conversation stack expands upward and contracts without dropping stored messages", ConversationUiChecks.StackNavigation),
-    ("Conversation zone is independent of content and mascot never upscales", ConversationUiChecks.FixedZoneAndSourceSize),
-    ("Display preference migration makes the former large size standard", ConversationUiChecks.PreferencesMigration),
-    ("Input and conversation history toggle independently", ConversationUiChecks.IndependentVisibility),
-    ("History navigation retains surviving cards", ConversationUiChecks.RetainedHistoryCards),
-    ("Auxiliary surfaces remain adjacent to the mascot", ConversationUiChecks.NearbyAuxiliaryWindows),
-    ("Status width follows mascot size without obscuring open conversation", ConversationUiChecks.MascotStatusWidth),
-    ("Runtime snapshots are scoped to the current session and time", RuntimeControlChecks.SnapshotIdentity),
-    ("Current-user runtime control pipe transmits bounded commands and acknowledgements", RuntimeControlChecks.PipeCommands),
-    ("Windows argument quoting handles spaces, Japanese paths, quotes and trailing separators", RuntimeControlChecks.WindowsArgumentQuoting),
-    ("Tunnel stdio command preserves Windows paths through the inner parser", RuntimeControlChecks.TunnelStdioCommandQuoting)
+    ("Core.CloudImportChecks.Run", "imports preserve Dot isolation, exact retries and source identity", CloudImportChecks.Run),
+    ("Core.CloudImportChecks.PreviewSeed", "preview fixtures persist separately without touching Dot", CloudImportChecks.PreviewSeed),
+    ("Core.CloudImportChecks.WorkWake", "scoped Work wake cannot claim another operation or alter the Dot subscription", CloudImportChecks.WorkWake),
+    ("Core.CloudImportChecks.WorkWakeDurable", "Work subscription and signing rotation survive restart independently", CloudImportChecks.WorkWakeDurable),
+    ("Core.CloudImportChecks.DefaultMcp", "default MCP advertises scoped import and preserves the legacy tools", CloudImportChecks.DefaultMcp),
+    ("Core.Persistence", "Messages and channel binding persist across a restart", Persistence),
+    ("Core.Idempotency", "Identical sends and replies are idempotent, conflicting retries fail", Idempotency),
+    ("Core.Validation", "Invalid messages and reply destinations are rejected atomically", Validation),
+    ("Core.Pagination", "Paged cursors preserve every message without repeating it", Pagination),
+    ("Core.DurableRetries", "Retry timing, attempts and event identity survive restart", DurableRetries),
+    ("Core.QueuedBeforeSubscription", "Pre-subscription messages wait, then follow the first subscription", QueuedBeforeSubscription),
+    ("Core.ExpiredSubscription", "Expired and revoked subscriptions stop delivery", ExpiredSubscription),
+    ("Core.SubscriptionBinding", "Pending messages cannot be redirected to another subscriber", SubscriptionBinding),
+    ("Core.ReplyBeforeReceipt", "A reply racing webhook receipt never regresses or gets sent again", ReplyBeforeReceipt),
+    ("Core.ContextSnapshot", "Context includes the request and only messages known at its creation", ContextSnapshot),
+    ("Core.ManualRetries", "Manual retry resets transient failures while preserving terminal failures", ManualRetries),
+    ("Core.LateFailureAfterManualRetry", "A late failure cannot undo manual retry, including after restart", LateFailureAfterManualRetry),
+    ("Core.LateFailureAfterRenewal", "A late failure using an old key cannot undo verified renewal", LateFailureAfterRenewal),
+    ("Core.GenerationMigration", "Schema v1 upgrades preserve messages and pending delivery state", GenerationMigration),
+    ("Core.ConcurrentRetries", "Concurrent retries commit one user message and one answer", ConcurrentRetries),
+    ("Core.ProtocolChecks.RunAll", "MCP protocol, signatures, secure callbacks and two-turn conversation", ProtocolChecks.RunAll),
+    ("Core.ProactiveChecks.StorePersistence", "Standalone messages persist without changing request or subscription identity", ProactiveChecks.StorePersistence),
+    ("Core.ProactiveChecks.ValidityAndConcurrentRetry", "Standalone input validation and concurrent retries are safe", ProactiveChecks.ValidityAndConcurrentRetry),
+    ("Core.ProactiveChecks.McpTool", "MCP standalone message tool is isolated from existing replies", ProactiveChecks.McpTool),
+    ("Core.ProactiveChecks.DesktopUnread", "Standalone messages share unread persistence without duplicate notifications", ProactiveChecks.DesktopUnread),
+    ("Core.CharacterReactionTests.Inbox", "Initial history, partial reads and duplicate replies do not replay reactions", CharacterReactionTests.Inbox),
+    ("Core.CharacterReactionTests.Playback", "Character reactions preserve priority, interaction suspension and expiration", CharacterReactionTests.Playback),
+    ("Core.CharacterReactionTests.ConversationGestures", "Opening and dismissing preserve finite gestures and drop stale queued visibility", CharacterReactionTests.ConversationGestures),
+    ("Core.CharacterReactionTests.CloseDuringMessage", "Short press and menus hold finite playback, drag and motion-off cancel", CharacterReactionTests.CloseDuringMessage),
+    ("Core.CharacterReactionTests.Unread", "Unread rest follows reconciled IDs and yields only at valid phases", CharacterReactionTests.Unread),
+    ("Core.CharacterReactionTests.Waiting", "Thinking and direct gaze respect boundaries, restart and settle matching replies", CharacterReactionTests.Waiting),
+    ("Core.CharacterReactionTests.ActionBoundariesAndShutdown", "Indexed idle expressions and bounded idempotent shutdown", CharacterReactionTests.ActionBoundariesAndShutdown),
+    ("Core.CharacterReactionTests.MotionPreferences", "System, app-only and disabled motion preferences preserve prior choices", CharacterReactionTests.MotionPreferences),
+    ("Core.CursorGazeTests.Proximity", "Nearby cursors hold the gaze across distance and DPI boundaries", CursorGazeTests.Proximity),
+    ("Core.CursorGazeTests.PanelActivity", "Panel input immediately redirects the gaze and repeated interaction extends it", CursorGazeTests.PanelActivity),
+    ("Core.DesktopUiChecks.Placement", "Desktop overlay placement and work-area bounds", DesktopUiChecks.Placement),
+    ("Core.DesktopUiChecks.HistoryReadGestures", "History activation and effective navigation clear only laid-out answer IDs", DesktopUiChecks.HistoryReadGestures),
+    ("Core.DesktopUiChecks.Preferences", "Desktop unread checkpoints and preferences survive restart", DesktopUiChecks.Preferences),
+    ("Core.DesktopUiChecks.CheckpointIdentity", "Desktop checkpoint detects a replaced history and ignores unconfirmed pages", DesktopUiChecks.CheckpointIdentity),
+    ("Core.ConversationUiChecks.DraftHeightAndLosslessPages", "Long bubble draft grows, then pages losslessly within chrome and DPI budgets", ConversationUiChecks.DraftHeightAndLosslessPages),
+    ("Core.TerminalMaskChecks.Run", "Terminal mask distinguishes fixed-grid crop from raster mismatch", TerminalMaskChecks.Run),
+    ("Core.ConversationUiChecks.BubbleBodyAndFinalLine", "Bubble chrome, device-pixel budgets and final-line page boundaries", ConversationUiChecks.BubbleBodyAndFinalLine),
+    ("Core.ConversationUiChecks.LosslessPages", "Conversation text pages preserve Japanese, Unicode, newlines and long unbroken text", ConversationUiChecks.LosslessPages),
+    ("Core.ConversationUiChecks.StackNavigation", "Conversation stack expands upward and contracts without dropping stored messages", ConversationUiChecks.StackNavigation),
+    ("Core.ConversationUiChecks.FixedZoneAndSourceSize", "Conversation zone is independent of content and mascot never upscales", ConversationUiChecks.FixedZoneAndSourceSize),
+    ("Core.ConversationUiChecks.PreferencesMigration", "Display preference migration makes the former large size standard", ConversationUiChecks.PreferencesMigration),
+    ("Core.ConversationUiChecks.IndependentVisibility", "Input and conversation history toggle independently", ConversationUiChecks.IndependentVisibility),
+    ("Core.ConversationUiChecks.RetainedHistoryCards", "History navigation retains surviving cards", ConversationUiChecks.RetainedHistoryCards),
+    ("Core.ConversationUiChecks.NearbyAuxiliaryWindows", "Auxiliary surfaces remain adjacent to the mascot", ConversationUiChecks.NearbyAuxiliaryWindows),
+    ("Core.ConversationUiChecks.MascotStatusWidth", "Status width follows mascot size without obscuring open conversation", ConversationUiChecks.MascotStatusWidth),
+    ("Core.RuntimeControlChecks.SnapshotIdentity", "Runtime snapshots are scoped to the current session and time", RuntimeControlChecks.SnapshotIdentity),
+    ("Core.RuntimeControlChecks.PipeCommands", "Current-user runtime control pipe transmits bounded commands and acknowledgements", RuntimeControlChecks.PipeCommands),
+    ("Core.RuntimeControlChecks.WindowsArgumentQuoting", "Windows argument quoting handles spaces, Japanese paths, quotes and trailing separators", RuntimeControlChecks.WindowsArgumentQuoting),
+    ("Core.RuntimeControlChecks.TunnelStdioCommandQuoting", "Tunnel stdio command preserves Windows paths through the inner parser", RuntimeControlChecks.TunnelStdioCommandQuoting)
 };
 
+if (tests.Select(test => test.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != tests.Length)
+    throw new InvalidOperationException("Duplicate Core test IDs.");
+if (args is ["--list"])
+{
+    foreach (var test in tests)
+        Console.WriteLine($"{test.Id}\t{test.Name}");
+    return;
+}
+var selectedTests = tests;
+if (args is ["--test-name", var testId])
+{
+    selectedTests = tests.Where(test => string.Equals(test.Id, testId, StringComparison.Ordinal)).ToArray();
+    if (selectedTests.Length != 1)
+    {
+        Console.Error.WriteLine($"Unknown Core test: {testId}. Use --list.");
+        Environment.ExitCode = 2;
+        return;
+    }
+}
+else if (args.Length != 0)
+{
+    Console.Error.WriteLine("Unknown Core test option.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 var failures = 0;
-foreach (var test in tests)
+foreach (var test in selectedTests)
 {
     try
     {
@@ -72,10 +103,11 @@ foreach (var test in tests)
     catch (Exception exception)
     {
         failures++;
-        Console.Error.WriteLine($"FAIL {test.Name}\n{exception}");
+        Console.WriteLine($"TEST-FAIL {test.Id}: {test.Name}");
+        Console.Error.WriteLine(exception);
     }
 }
-Console.WriteLine($"{tests.Length - failures}/{tests.Length} regression tests passed.");
+Console.WriteLine($"{selectedTests.Length - failures}/{selectedTests.Length} regression tests passed.");
 Environment.ExitCode = failures == 0 ? 0 : 1;
 
 static SendMessageRequest Request(string text = "こんにちは", string? inReplyTo = null) =>
