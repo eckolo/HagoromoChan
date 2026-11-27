@@ -592,7 +592,7 @@ internal sealed class DesktopPanels
         label.TextTrimming = TextTrimming.CharacterEllipsis;
         label.TextWrapping = TextWrapping.NoWrap;
         header.Children.Add(label);
-        var body = BodyBox();
+        var body = HistoryBodyBox();
         body.IsReadOnly = true;
         body.Text = message.Text;
         body.Width = body.MaxWidth = bodyWidth;
@@ -878,16 +878,25 @@ internal sealed class DesktopPanels
         TextWrapping = TextWrapping.Wrap, Foreground = Ink
     };
 
-    private static TextBox BodyBox() => new()
+    private static TextBox BodyBox() => ConfigureBodyBox(new TextBox());
+    private static TextBox HistoryBodyBox() => ConfigureBodyBox(new HistoryTextBox());
+
+    private static TextBox ConfigureBodyBox(TextBox body)
     {
-        TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, FontSize = 14,
-        FontFamily = new FontFamily("Yu Gothic UI, Meiryo"),
-        VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        UseLayoutRounding = true, ClipToBounds = true,
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        Background = Brushes.Transparent, Foreground = Ink,
-        BorderThickness = new Thickness(0), Padding = new Thickness(0)
-    };
+        body.TextWrapping = TextWrapping.Wrap;
+        body.AcceptsReturn = true;
+        body.FontSize = 14;
+        body.FontFamily = new FontFamily("Yu Gothic UI, Meiryo");
+        body.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+        body.UseLayoutRounding = true;
+        body.ClipToBounds = true;
+        body.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        body.Background = Brushes.Transparent;
+        body.Foreground = Ink;
+        body.BorderThickness = new Thickness(0);
+        body.Padding = new Thickness(0);
+        return body;
+    }
 
     private static void StyleButton(ButtonBase button, string text)
     {

@@ -4,6 +4,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Automation.Text;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using HagoromoChan.LayoutChecks;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -182,6 +183,31 @@ internal static class Program
                 Require(Math.Abs(origin - x.Value) <= 1 / scale, "M22 frame moves when only the tail switches sides.");
                 Require(ReferenceEquals(body, arrowBody), "M22 frame change recreated the retained native body.");
             }
+            // Continue through the real arrow handler with no selection: this
+            // is the failing production path, not merely a direct API jump.
+            var presenterForLong = FindPresenter(arrowBody);
+            Require(presenterForLong is { CanContentScroll: false, ScrollOwner: not null } &&
+                presenterForLong.ViewportHeight == arrowBody.ViewportHeight &&
+                presenterForLong.ExtentHeight == arrowBody.ExtentHeight,
+                "The native history presenter is not the physical scroll owner.");
+            var newer = (RepeatButton)type.GetField("_newer", Flags)!.GetValue(panels)!;
+            var steps = 0;
+            while (arrowBody.ExtentHeight - arrowBody.ViewportHeight - arrowBody.VerticalOffset > .01)
+            {
+                Require(++steps <= longText.Length && newer.IsEnabled && arrowBody.SelectionLength == 0,
+                    "The long, unselected history did not advance to its end.");
+                var before = arrowBody.VerticalOffset;
+                Phase($"long unselected arrow {steps}");
+                newer.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, newer));
+                Layout($"long unselected arrow {steps}");
+                Require(ReferenceEquals(Active().Body, arrowBody) && arrowBody.VerticalOffset > before,
+                    "The actual arrow must advance the same native history viewport.");
+            }
+            Require(steps > 0, "The long history did not exercise the actual arrow.");
+            Phase($"long unselected arrow reached the native end in {steps} steps");
+            CheckTailInk(window, arrowBody, "末尾gypq語", verifyNegativeControl: false);
+            arrowBody.ScrollToHome();
+            Layout("return to long origin before selection");
             arrowBody.Select(0, 3);
             arrowBody.ScrollToEnd();
             Layout("long terminal");
@@ -229,6 +255,8 @@ internal static class Program
             var composer = (FrameworkElement?)type.GetField("_composerBubble", Flags)!.GetValue(panels);
             Require(composer?.IsVisible == true, "Live composer missing.");
             InsideClient(composer!);
+            Require(FindPresenter(editor) is { CanContentScroll: true },
+                "History-only physical scrolling must not replace the native composer scroll path.");
             Require(editor.Text == longText && editor.VerticalScrollBarVisibility == ScrollBarVisibility.Hidden,
                 "Composer no longer contains the full original text or gained a width-changing scrollbar.");
             editor.CaretIndex = editor.Text.Length;
@@ -278,13 +306,13 @@ internal static class Program
             "The native hit geometry cannot place the marker within its scroll viewport.");
         Phase($"terminal viewport settled: viewport={view}, anchor={liveAnchor}, dpi={dpi.PixelsPerInchY}");
 
-        // Use the very same BodyBox constructor and transparent HWND mode. The
+        // Use the very same HistoryBodyBox factory and transparent HWND mode. The
         // isolated reference deliberately has no lower clip around the marker.
         // A chromatic foreground isolates the monochrome suffix from paper,
         // borders and header; color emoji is checked separately in native
         // selection, not claimed by this foreground-based raster.
         var factory = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
-        var reference = (TextBox)factory.GetMethod("BodyBox", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!;
+        var reference = (TextBox)factory.GetMethod("HistoryBodyBox", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!;
         reference.IsReadOnly = true;
         reference.Text = finalLine;
         reference.Width = reference.MaxWidth = body.ActualWidth;
