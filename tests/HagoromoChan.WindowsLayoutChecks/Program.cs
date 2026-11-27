@@ -391,9 +391,22 @@ internal static class Program
             ClickHistoryButton("書式付きで表示");
             Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted),
                 "A format toggle replaced the retained native document.");
+            // A tall desktop can fit the entire formatted fixture. Use the same
+            // production client constraint as the plain-history regression, so
+            // this check exercises overflow regardless of monitor height.
+            var markdownClient = root.RenderSize;
+            const double markdownHeight = 300.0;
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, markdownHeight]);
+            Layout("Markdown constrained client");
             InsideClient(ActiveContent().Card);
+            Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted) &&
+                root.ActualHeight <= markdownHeight + 1 / scale,
+                "The Markdown card was not retained in the constrained client.");
             RequirePhysicalScrollOwner(formatted, "Markdown history");
-            Require(formatted.ExtentHeight > formatted.ViewportHeight, "The synthetic Markdown did not exercise body scrolling.");
+            Console.WriteLine(FormattableString.Invariant(
+                $"TRACE conversation layout: Markdown constrained viewport={formatted.ViewportHeight:F2}, extent={formatted.ExtentHeight:F2}, offset={formatted.VerticalOffset:F2}"));
+            Require(formatted.ViewportHeight > 0 && formatted.ExtentHeight - formatted.ViewportHeight > 1 / scale,
+                "The long Markdown did not expose a native scroll range in the constrained client.");
             var markdownNext = (RepeatButton)type.GetField("_newer", Flags)!.GetValue(panels)!;
             void ClickArrow(RepeatButton arrow)
             {
@@ -402,9 +415,11 @@ internal static class Program
             }
             for (int i = 0; i < 250 && formatted.ExtentHeight - formatted.ViewportHeight - formatted.VerticalOffset > .01; i++)
             {
+                var before = formatted.VerticalOffset;
                 ClickArrow(markdownNext);
-                Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted),
-                    "The arrow left the formatted message before its body tail.");
+                Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted) &&
+                    formatted.VerticalOffset > before,
+                    "The arrow failed to advance the same formatted message before its body tail.");
             }
             var richViewport = FindPresenter(formatted)!;
             var richView = richViewport.TransformToAncestor(formatted)
@@ -421,6 +436,8 @@ internal static class Program
             ClickArrow(older);
             Require(Active().Body.Text != markdown && markdown.StartsWith(Active().Body.Text, StringComparison.Ordinal),
                 "Returning to the old Markdown card did not preserve its plain collapsed preview.");
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, markdownClient.Height]);
+            Layout("restore Markdown client");
             Console.WriteLine("PASS conversation layout: history rendering, navigation and editable draft");
         }
         finally
