@@ -286,7 +286,9 @@ internal static class Program
     {
         Phase("terminal viewport geometry");
         var root = (FrameworkElement)host.Content;
-        var dpi = VisualTreeHelper.GetDpi(root);
+        var client = CaptureClientRoot(root);
+        var dpi = VisualTreeHelper.GetDpi(client);
+        Phase($"terminal live coordinates: content={root.RenderSize}, HWND root={client.RenderSize}, content origin in HWND={root.TranslatePoint(new Point(), client)}");
         var terminal = body.Text.LastIndexOf(finalLine, StringComparison.Ordinal);
         Require(terminal > 0 && body.Text[(terminal + finalLine.Length)..].Trim('\r', '\n').Length == 0,
             "The synthetic marker is not the last nonblank line.");
@@ -296,10 +298,10 @@ internal static class Program
 
         var viewport = FindPresenter(body);
         Require(viewport is { ActualWidth: > 0, ActualHeight: > 0 }, "Production native scroll viewport not found.");
-        var view = viewport!.TransformToAncestor(root).TransformBounds(
+        var view = viewport!.TransformToAncestor(client).TransformBounds(
             new Rect(new Point(), viewport.RenderSize));
-        var liveAnchor = Anchor(body, root, terminal);
-        var end = Anchor(body, root, terminal + finalLine.Length - 1);
+        var liveAnchor = Anchor(body, client, terminal);
+        var end = Anchor(body, client, terminal + finalLine.Length - 1);
         Require(Math.Abs(liveAnchor.Y - end.Y) < 1 / dpi.DpiScaleY,
             "The marker wrapped; a one-line raster reference is not comparable.");
         Require(liveAnchor.Y >= view.Top - 1 / dpi.DpiScaleY && liveAnchor.Y < view.Bottom,
@@ -340,11 +342,17 @@ internal static class Program
             window.Show();
             window.UpdateLayout();
             host.UpdateLayout();
-            var referenceDpi = VisualTreeHelper.GetDpi(referenceRoot);
+            var referenceClient = CaptureClientRoot(referenceRoot);
+            var referenceDpi = VisualTreeHelper.GetDpi(referenceClient);
+            Phase($"terminal reference coordinates: content={referenceRoot.RenderSize}, HWND root={referenceClient.RenderSize}, content origin in HWND={referenceRoot.TranslatePoint(new Point(), referenceClient)}");
             Require(referenceDpi.DpiScaleX == dpi.DpiScaleX && referenceDpi.DpiScaleY == dpi.DpiScaleY,
                 "Marker reference is on a different physical pixel scale.");
-            var referenceAnchor = Anchor(reference, referenceRoot, 0);
-            var referenceEnd = Anchor(reference, referenceRoot, finalLine.Length - 1);
+            var currentAnchor = Anchor(body, client, terminal);
+            var currentView = viewport.TransformToAncestor(client).TransformBounds(new Rect(new Point(), viewport.RenderSize));
+            Require(currentAnchor == liveAnchor && currentView == view,
+                $"Live coordinate registration changed while opening the reference: [{liveAnchor}, {view}] -> [{currentAnchor}, {currentView}].");
+            var referenceAnchor = Anchor(reference, referenceClient, 0);
+            var referenceEnd = Anchor(reference, referenceClient, finalLine.Length - 1);
             Require(Math.Abs(referenceAnchor.Y - referenceEnd.Y) < 1 / dpi.DpiScaleY &&
                 Math.Abs((end.X - liveAnchor.X) - (referenceEnd.X - referenceAnchor.X)) < 1 / dpi.DpiScaleX,
                 "Production marker and reference do not share single-line metrics.");
@@ -359,8 +367,9 @@ internal static class Program
             Phase("terminal registered pixel comparison");
             var referenceX = x0 / dpi.DpiScaleX - liveAnchor.X + referenceAnchor.X;
             var referenceY = y0 / dpi.DpiScaleY - liveAnchor.Y + referenceAnchor.Y;
-            var expected = Capture(referenceRoot, reference, tint, referenceX, referenceY, w, h, dpi);
-            var actual = Capture(root, body, tint, x0 / dpi.DpiScaleX, y0 / dpi.DpiScaleY, w, h, dpi);
+            Phase($"terminal capture origins in HWND: live=({x0 / dpi.DpiScaleX:F4},{y0 / dpi.DpiScaleY:F4}), reference=({referenceX:F4},{referenceY:F4}), pixels={w}x{h}");
+            var expected = Capture(referenceClient, reference, tint, referenceX, referenceY, w, h, dpi);
+            var actual = Capture(client, body, tint, x0 / dpi.DpiScaleX, y0 / dpi.DpiScaleY, w, h, dpi);
             // The original fixture has other lines above the marker. Only
             // ignore rows *above* its independently determined first ink;
             // never ignore a missing or extra bottom row.
@@ -376,7 +385,12 @@ internal static class Program
                 // the same registered pixel grid. A synthetic boolean crop
                 // alone would not exercise the brush/raster/clip pipeline.
                 Phase("terminal reference: physical one-row ancestor clip");
-                var cutoff = referenceY + expectedLast / dpi.DpiScaleY;
+                var cutoffInClient = new Point(referenceX, referenceY + expectedLast / dpi.DpiScaleY);
+                var cutoffPoint = referenceClient.TranslatePoint(cutoffInClient, referenceRoot);
+                var cutoff = cutoffPoint.Y;
+                var roundTrip = referenceRoot.TranslatePoint(cutoffPoint, referenceClient);
+                Require(Math.Abs(roundTrip.Y - cutoffInClient.Y) < 1e-6,
+                    "The reference clip must round-trip to the original physical row.");
                 Require(cutoff > 0 && cutoff < referenceRoot.ActualHeight,
                     "The reference clip boundary is outside its layout.");
                 var originalClip = referenceRoot.Clip;
@@ -384,7 +398,7 @@ internal static class Program
                 try
                 {
                     referenceRoot.Clip = new RectangleGeometry(new Rect(0, 0, referenceRoot.ActualWidth, cutoff));
-                    clipped = Capture(referenceRoot, reference, tint, referenceX, referenceY, w, h, dpi);
+                    clipped = Capture(referenceClient, reference, tint, referenceX, referenceY, w, h, dpi);
                 }
                 finally { referenceRoot.Clip = originalClip; }
                 var clipVerdict = TerminalMask.Compare(expected, clipped, w, out _, out var clippedLast);
@@ -412,6 +426,20 @@ internal static class Program
             body.Foreground = old;
         }
         Phase("terminal registered pixels complete");
+    }
+
+    private static FrameworkElement CaptureClientRoot(FrameworkElement content)
+    {
+        // VisualBrush absolute viewboxes are in the painted visual's outer
+        // space. Sampling the panel's inner coordinates omitted its bottom-
+        // aligned offset when the test shrank the panel within its HWND.
+        var client = PresentationSource.FromVisual(content)?.RootVisual as FrameworkElement
+            ?? throw new InvalidOperationException("The capture content is not in a WPF HWND.");
+        Require(VisualTreeHelper.GetParent(client) is null &&
+            VisualTreeHelper.GetOffset(client) == new Vector() &&
+            (VisualTreeHelper.GetTransform(client) is null or { Value.IsIdentity: true }),
+            "The capture HWND root must use unshifted client coordinates.");
+        return client;
     }
 
     private static Point Anchor(TextBox box, FrameworkElement captureRoot, int index)
