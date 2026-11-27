@@ -20,10 +20,17 @@ export function verifiedCompletedWorkAnswer(envelope, requestedThreadId) {
     const turn = envelope.latestTurn;
     if (!turn || turn.status !== "completed" || !id(turn.id) ||
         !Number.isFinite(turn.completedAt) || turn.completedAt <= 0 || !Array.isArray(envelope.items)) return null;
-    // Do not guess which assistant item is final when the provider supplies no phase.
+    // A completed turn and even a single complete assistant item are not
+    // answer classification. The host may supply an explicit authoritative
+    // phase; the current native cloud reader does not expose it. Do not
+    // populate phase from position, text, timestamp, or a history match.
     const items = envelope.items.filter(item => item?.turnId === turn.id && item.role === "assistant");
-    if (items.length !== 1) return null;
-    const answer = items[0];
+    if (items.some(item => !id(item.id) ||
+        (item.phase !== "commentary" && item.phase !== "final_answer")) ||
+        new Set(items.map(item => item.id)).size !== items.length) return null;
+    const finals = items.filter(item => item.phase === "final_answer");
+    if (finals.length !== 1) return null;
+    const [answer] = finals;
     if (!id(answer.id) || answer.truncated !== false || !text(answer.text) ||
         !Number.isFinite(answer.completedAtMs) || answer.completedAtMs <= 0) return null;
     return { message_id: answer.id, text: answer.text };
@@ -89,6 +96,10 @@ export async function serviceOneWorkRequest(host) {
     }
     const snapshot = await collectNativeWorkPages(
         (threadId, cursor) => host.readWork(threadId, cursor), request.conversation_id, response.envelope);
+    // Native readWork exposes a thread snapshot and cursors, not an
+    // authoritative exact-item route with the older turn's final status.
+    // A previously offered answer is unavailable once it is no longer the
+    // verified final of this snapshot; a cached ID cannot prove its outcome.
     const answer = verifiedCompletedWorkAnswer(snapshot, request.conversation_id);
     if (!answer || (action === "selected_answer" && answer.message_id !== request.message_id)) {
         await host.resolveAnswer({ ...key, state: "unavailable" });

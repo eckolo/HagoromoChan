@@ -3,7 +3,7 @@ import { verifiedWorkTitle, verifiedCompletedWorkAnswer, collectNativeWorkPages,
 
 const thread = "work_real_fixture";
 const turn = { status: "completed", id: "turn_completed", completedAt: 1234 };
-const item = { id: "msg_Opaque", turnId: turn.id, role: "assistant",
+const item = { id: "msg_Opaque", turnId: turn.id, role: "assistant", phase: "final_answer",
     truncated: false, completedAtMs: 1234567, text: " complete\noriginal " };
 const envelope = { threadId: thread, latestTurn: turn, items: [item], nextCursor: null };
 const record = { ...envelope, title: "Verified title" };
@@ -14,6 +14,16 @@ assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [{ ...item, trunc
 assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [item, { ...item, id: "msg_other" }] }, thread), null);
 assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [{ ...item, role: "user" }] }, thread), null);
 assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [{ ...item, turnId: "turn_prior" }] }, thread), null);
+const commentary = { ...item, id: "msg_commentary", phase: "commentary" };
+const phaseLess = { ...item };
+delete phaseLess.phase;
+assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [phaseLess] }, thread), null);
+assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [commentary] }, thread), null);
+assert.deepEqual(verifiedCompletedWorkAnswer({ ...envelope, items: [commentary, item] }, thread),
+    { message_id: item.id, text: item.text });
+assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [commentary, { ...item, truncated: true }] }, thread), null);
+assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [{ ...phaseLess, id: "other_unknown" }, item] }, thread), null);
+assert.equal(verifiedCompletedWorkAnswer({ ...envelope, items: [{ ...commentary, id: item.id }, item] }, thread), null);
 assert.deepEqual(verifiedWorkTitle({ threadId: thread, product: "ChatGPT Work", metadata: record }),
     { conversation_id: thread, title: "Verified title" });
 assert.equal(verifiedWorkTitle({ threadId: thread, product: "ChatGPT Work",
@@ -45,6 +55,17 @@ host.next = async () => ({ ...key, action: "list_answers" });
 assert.equal(await serviceOneWorkRequest(host), "answer_choices_resolved");
 assert.equal(response.choices[0].message_id, item.id);
 assert.equal(Object.hasOwn(response.choices[0], "text"), false);
+const prior = { ...item, id: "msg_prior_final", turnId: "turn_prior" };
+host.next = async () => ({ ...key, action: "selected_answer", message_id: prior.id });
+assert.equal(await serviceOneWorkRequest({
+    ...host, readWork: async () => ({ state: "authorized", product: "ChatGPT Work", envelope: { ...envelope, items: [prior, item] } })
+}), "body_unavailable");
+assert.deepEqual(response, { ...key, state: "unavailable" });
+host.next = async () => ({ ...key, action: "list_answers" });
+assert.equal(await serviceOneWorkRequest({
+    ...host, readWork: async () => ({ state: "authorized", product: "ChatGPT Work", envelope: { ...envelope, items: [phaseLess] } })
+}), "body_unavailable");
+assert.deepEqual(response, { ...key, state: "unavailable" });
 host.next = async () => ({ operation_id: key.operation_id, action: "discover" });
 assert.equal(await serviceOneWorkRequest(host), "discovery_resolved");
 assert.deepEqual(response.choices, [{ conversation_id: thread, title: "Verified title" }]);

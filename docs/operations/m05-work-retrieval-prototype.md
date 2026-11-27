@@ -56,19 +56,24 @@ with `node scripts/m05-work-reader.test.mjs`. A host must obtain only the
 already-authorized Work records and pass through the provider's exact metadata;
 neither the module nor the SSP creates an authorization grant. Native completed
 turn ID and item ID must match within the exact requested execution thread.
-Without a final-phase field the adapter accepts only one complete, untruncated
-assistant item in that completed turn after exhausting bounded, consistent
-pagination. It rejects repeated cursors, changed turn snapshots, partial pages
-and multiple assistant candidates. Empty intermediate pages do not terminate
-enumeration.
+After bounded, consistent pagination the adapter requires exactly one explicit
+final-answer item, full original text and its own completion timestamp.
+Explicit commentary may coexist but may never be sent as the final answer.
+Missing/unknown phase, conflicting IDs, duplicate finals, partial text, and
+inconsistent or incomplete pagination fail closed. Empty intermediate pages
+do not terminate enumeration. Phase in the contract is authoritative evidence
+from the host; it is not available from the currently observed native reader
+and must never be synthesized from position, wording or recency.
 
 The native reader exposes exact assistant item text and opaque ID but the
 tested native execution record has no title. In the authorized sample, the
 first page showed one candidate but four pages exposed two distinct assistant
 items on the same completed latest turn, with no final-phase marker. It is
 therefore unsuitable as a provable final answer. Older items had completion
-timestamps without a per-turn final outcome; timestamps alone are not proof. The history representation is not
-an authoritative alias. Work discovery must omit an entry unless the provider
+timestamps without a per-turn final outcome; timestamps alone are not proof.
+The available native interface reads an exact thread by ID and supports
+cursors, not an exact historical item tied to an authoritative turn outcome.
+Saved conversation history is not an authoritative alias. Work discovery must omit an entry unless the provider
 delivers an exact execution-thread ID with its verified title, and the adapter
 must not silently replace a selected answer if that item is no longer provable
 through the available reader. Fetching from a different history representation
