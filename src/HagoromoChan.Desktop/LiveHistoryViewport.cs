@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 
 namespace HagoromoChan.Desktop;
@@ -27,6 +28,7 @@ internal sealed class LiveHistoryViewport(TextBox body) : Decorator
     public TextBox Body { get; } = body;
     public bool GeometryKnown => _geometryKnown;
     public double ViewTop => _current.Top;
+    internal string? GeometryFailure { get; private set; }
 
     public IReadOnlyList<Page> Layout(double width, double maximum, double scale)
     {
@@ -52,7 +54,7 @@ internal sealed class LiveHistoryViewport(TextBox body) : Decorator
         Body.Measure(new Size(width, double.PositiveInfinity));
         _fullHeight = BubbleLayout.RoundUp(Body.DesiredSize.Height, scale);
         Body.Arrange(new Rect(0, 0, width, _fullHeight));
-        var drawn = ReadLines(Body);
+        var drawn = ReadLines(Body, out var failure);
         if (drawn.Count != 0)
         {
             var lastInk = drawn.Where(line => !line.Ink.IsEmpty).Select(line => line.Ink.Bottom)
@@ -61,11 +63,14 @@ internal sealed class LiveHistoryViewport(TextBox body) : Decorator
             {
                 _fullHeight = BubbleLayout.RoundUp(lastInk, scale);
                 Body.Arrange(new Rect(0, 0, width, _fullHeight));
-                drawn = ReadLines(Body);
+                drawn = ReadLines(Body, out failure);
             }
         }
         var complete = _forceFallback ? null : TryPages(drawn, _fullHeight, maximum, scale);
         _geometryKnown = complete is not null;
+        if (!_forceFallback)
+            GeometryFailure = _geometryKnown ? null : failure ??
+                $"No whole-ink page boundaries (lines={drawn.Count}, height={_fullHeight:F2}, maximum={maximum:F2}).";
         _pages = complete ?? [new(0, 0, 0, Math.Min(maximum, Math.Max(44, _fullHeight)))];
         return _pages;
     }
@@ -104,6 +109,8 @@ internal sealed class LiveHistoryViewport(TextBox body) : Decorator
         {
             _geometryKnown = false;
             _forceFallback = true;
+            GeometryFailure = $"Final viewport constrained (page={_current.Height:F2}, available={arrangeSize.Height:F2}, "
+                + $"body={Body.ActualWidth:F2}x{Body.ActualHeight:F2}, expected={_width:F2}x{_fullHeight:F2}).";
             _measured = null;
             GeometryInvalidated?.Invoke();
         }
@@ -112,52 +119,59 @@ internal sealed class LiveHistoryViewport(TextBox body) : Decorator
 
     private readonly record struct DrawnLine(double Origin, Rect Ink);
 
-    private static List<DrawnLine> ReadLines(TextBox body)
+    private static List<DrawnLine> ReadLines(TextBox body, out string? failure)
     {
-        // The WPF TextBox template renders line DrawingVisual children
-        // under TextBoxView. Recognize the known host and fail closed to
-        // native scrolling if a different template/runtime is used.
+        failure = null;
+        // WPF attaches the native renderer as PART_ContentHost.Content. Use
+        // that public relationship and its active scroll owner, not a string
+        // naming a private framework type or ScrollViewer's deferred counters.
         if (body.Template?.FindName("PART_ContentHost", body) is not ScrollViewer host ||
-            body.ExtentHeight > body.ViewportHeight + 1e-6 ||
-            Math.Abs(body.VerticalOffset) > 1e-6)
-            return [];
-
-        DependencyObject? FindView(DependencyObject root)
+            host.Content is not FrameworkElement view ||
+            view is not IScrollInfo scroll || !ReferenceEquals(scroll.ScrollOwner, host))
         {
-            if (root.GetType().FullName == "MS.Internal.Documents.TextBoxView") return root;
-            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            {
-                var candidate = FindView(VisualTreeHelper.GetChild(root, i));
-                if (candidate is not null) return candidate;
-            }
-            return null;
-        }
-
-        var view = FindView(host);
-        if (view is not FrameworkElement textView || !textView.IsArrangeValid ||
-            !double.IsFinite(body.ViewportWidth) || Math.Abs(textView.RenderSize.Width - body.ViewportWidth) > 1e-4)
+            failure = "No native TextBox scroll surface.";
             return [];
+        }
+        if (!view.IsArrangeValid || !double.IsFinite(scroll.ExtentHeight) ||
+            !double.IsFinite(scroll.ViewportHeight) || scroll.ExtentHeight <= 0 ||
+            scroll.ExtentHeight > scroll.ViewportHeight + 1e-6 || Math.Abs(scroll.VerticalOffset) > 1e-6 ||
+            !double.IsFinite(scroll.ViewportWidth) || Math.Abs(view.RenderSize.Width - scroll.ViewportWidth) > 1e-4)
+        {
+            failure = $"Native layout incomplete (arranged={view.IsArrangeValid}, extent={scroll.ExtentHeight:F2}, "
+                + $"viewport={scroll.ViewportWidth:F2}x{scroll.ViewportHeight:F2}, offset={scroll.VerticalOffset:F2}, "
+                + $"renderWidth={view.RenderSize.Width:F2}).";
+            return [];
+        }
         var lines = new List<DrawnLine>();
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(view); i++)
         {
-            if (VisualTreeHelper.GetChild(view, i) is not DrawingVisual visual) return [];
+            if (VisualTreeHelper.GetChild(view, i) is not DrawingVisual visual)
+            {
+                failure = "Unexpected non-line history visual.";
+                return [];
+            }
             var transform = visual.TransformToAncestor(body);
             var origin = transform.Transform(new Point(0, 0)).Y;
             var bounds = VisualTreeHelper.GetDrawing(visual)?.Bounds ?? Rect.Empty;
             lines.Add(new(origin, bounds.IsEmpty ? Rect.Empty : transform.TransformBounds(bounds)));
         }
         lines.Sort((a, b) => a.Origin.CompareTo(b.Origin));
-        // TextBoxView uses one evenly spaced visual per arranged line. Check
-        // coverage against its native scroll extent without asking WPF to
-        // format/rebuild a line at a character offset.
-        var firstOrigin = textView.TransformToAncestor(body).Transform(new Point(0, 0)).Y;
-        if (lines.Count == 0 || Math.Abs(lines[0].Origin - firstOrigin) > 1e-4 ||
-            !double.IsFinite(body.ExtentHeight) || body.ExtentHeight <= 0) return [];
-        var lineHeight = body.ExtentHeight / lines.Count;
+        // Require a complete sequence of visible native lines across the
+        // extent, without reformatting or querying character positions.
+        var firstOrigin = view.TransformToAncestor(body).Transform(new Point(0, 0)).Y;
+        if (lines.Count == 0 || Math.Abs(lines[0].Origin - firstOrigin) > 1e-4)
+        {
+            failure = $"Missing start of line sequence (lines={lines.Count}, origin={firstOrigin:F2}).";
+            return [];
+        }
+        var lineHeight = scroll.ExtentHeight / lines.Count;
         for (var i = 0; i < lines.Count; i++)
             if (!double.IsFinite(lines[i].Origin) ||
                 Math.Abs(lines[i].Origin - firstOrigin - i * lineHeight) > 1e-4)
+            {
+                failure = $"Incomplete line sequence (line={i}, lines={lines.Count}, height={lineHeight:F2}).";
                 return [];
+            }
         return lines;
     }
 

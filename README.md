@@ -37,6 +37,18 @@ Windows 11、.NET 10 SDK（開発用）、.NET 10 Desktop/ASP.NET Coreランタ�
     dotnet run --project .\src\HagoromoChan.Relay
     dotnet run --project .\src\HagoromoChan.Desktop
 
+## 開発テスト
+
+確認対象のコミットをチェックアウトして、リポジトリのルートで実行します。.NET SDK の要件は [global.json](global.json) を参照してください。どのコマンドもビルドし直してから検査を実行し、対象の Git コミットと成否を表示します。アプリ本体の更新、普段の会話データの使用、トンネル接続は行いません。
+
+| 対象 | PowerShell から実行 |
+| --- | --- |
+| 基本の自動回帰 | `powershell -NoProfile -File .\scripts\Test.ps1 -Suite Core` |
+| Windows の会話窓・入力欄の描画（M35） | `powershell -NoProfile -File .\scripts\Test.ps1 -Suite WindowsLayout` |
+| 両方（Windows） | `powershell -NoProfile -File .\scripts\Test.ps1 -Suite All` |
+
+`WindowsLayout` は Windows のデスクトップ上で合成データの小窓を一時的に開きます。合格時は `PASS M35` に続けて `PASS WindowsLayout (exit=0)` と表示します。失敗時は最初のエラーと `FAIL ... (exit=...)` の行を共有してください。通常起動での確認を指定された場合は、テストスクリプトで代用せず通常どおり起動してください。
+
 ## 羽衣ちゃんを接続する
 
 ### 1. ローカル中継を起動する

@@ -6,6 +6,7 @@ using System.Windows.Automation.Text;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using HagoromoChan.Contracts;
 using HagoromoChan.Desktop;
 
@@ -74,6 +75,8 @@ internal static class Program
                 Require(box.SelectionLength > 0, "Point-to-text did not select content in the retained TextBox.");
             }
             double ViewTop(Decorator view) => (double)view.GetType().GetProperty("ViewTop", Flags)!.GetValue(view)!;
+            string Failure(Decorator view) =>
+                (string?)view.GetType().GetProperty("GeometryFailure", Flags)!.GetValue(view) ?? "no geometry diagnostic";
             bool Known(Decorator view) => (bool)view.GetType().GetProperty("GeometryKnown", Flags)!.GetValue(view)!;
             void InsideClient(FrameworkElement element)
             {
@@ -90,13 +93,18 @@ internal static class Program
             {
                 Invoke("ShowMessage", id);
                 window.UpdateLayout();
+                // Allow the production Loaded-priority retry before testing
+                // the stabilized user-visible state. Never accept fallback.
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                window.UpdateLayout();
                 var bounds = desktop.GetMethod("Bounds")!.Invoke(null, [window])!;
                 Require(Px(bounds, "X") >= Px(area, "X") && Px(bounds, "Y") >= Px(area, "Y") &&
                     Px(bounds, "Right") <= Px(area, "Right") && Px(bounds, "Bottom") <= Px(area, "Bottom"),
                     "The native HWND escaped the work area.");
                 var (card, _, view, body) = Active();
                 InsideClient(card);
-                Require(Known(view) && body.Text == topic, "Production 600-character fixture uses unverified fallback.");
+                Require(Known(view), $"Production 600-character fixture uses unverified fallback: {Failure(view)}");
+                Require(body.Text == topic, "Production 600-character fixture changed the stored text.");
                 if (body.ActualHeight <= view.ActualHeight)
                     CheckTailInk(view, body, ViewTop(view), verifyNegativeControl: id == "topic-user");
                 ExerciseNativeTextHit(view, body);
@@ -130,7 +138,8 @@ internal static class Program
                 var origin = frame.TranslatePoint(new Point(0, 0), root).X;
                 x ??= origin;
                 Require(Math.Abs(origin - x.Value) <= 1 / gpuScale, "M22 frame moves when only the tail switches sides.");
-                Require(Known(page) && body.Text == longText && body.LineCount > 1, "CRLF/emoji text lost or unverified.");
+                Require(Known(page), $"Long history uses unverified fallback: {Failure(page)}");
+                Require(body.Text == longText && body.LineCount > 1, "CRLF/emoji text lost or not wrapped.");
             }
             for (var i = 0; i < 2; i++)
             {
