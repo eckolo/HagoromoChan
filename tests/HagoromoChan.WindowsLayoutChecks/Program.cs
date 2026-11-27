@@ -106,7 +106,7 @@ internal static class Program
                 Require(Known(view), $"Production 600-character fixture uses unverified fallback: {Failure(view)}");
                 Require(body.Text == topic, "Production 600-character fixture changed the stored text.");
                 if (body.ActualHeight <= view.ActualHeight)
-                    CheckTailInk(view, body, ViewTop(view), verifyNegativeControl: id == "topic-user");
+                    CheckTailInk(view, body, verifyNegativeControl: false);
                 ExerciseNativeTextHit(view, body);
             }
 
@@ -160,7 +160,7 @@ internal static class Program
                     sameBody.SelectionLength == 3 && ViewTop(last) > 0 && Known(last),
                     "Paging recreated the native body, altered selection, or missed its tail.");
                 sameBody.Select(0, 0);
-                CheckTailInk(last, sameBody, ViewTop(last), verifyNegativeControl: false);
+                CheckTailInk(last, sameBody, verifyNegativeControl: i == 0);
                 ExerciseNativeTextHit(last, sameBody);
             }
 
@@ -189,18 +189,21 @@ internal static class Program
         }
     }
 
-    private static void CheckTailInk(Decorator view, TextBox body, double top, bool verifyNegativeControl)
+    private static void CheckTailInk(Decorator view, TextBox body, bool verifyNegativeControl)
     {
-        var scale = VisualTreeHelper.GetDpi(view).DpiScaleY;
-        // Pixel oracle: derive the last non-transparent row from the full native
-        // body and compare with the actual clipped parent viewport. This does
-        // not reuse the page planner's line bounds or caret edge measurement.
-        int LastAlpha(Visual visual, double width, double height)
+        var dpi = VisualTreeHelper.GetDpi(view);
+        var bodyOrigin = body.TranslatePoint(new Point(0, 0), view);
+        var width = view.ActualWidth;
+        var height = Math.Max(view.ActualHeight, bodyOrigin.Y + body.ActualHeight) + 2 / dpi.DpiScaleY;
+        // Render the same visual twice into the same pixel grid, changing
+        // only the viewport clip. An isolated render of its child may have a
+        // different text rasterization origin even at the same DPI.
+        int LastAlpha()
         {
-            var w = Math.Max(1, (int)Math.Ceiling(width * scale));
-            var h = Math.Max(1, (int)Math.Ceiling(height * scale));
-            var bitmap = new RenderTargetBitmap(w, h, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
-            bitmap.Render(visual);
+            var w = Math.Max(1, (int)Math.Ceiling(width * dpi.DpiScaleX));
+            var h = Math.Max(1, (int)Math.Ceiling(height * dpi.DpiScaleY));
+            var bitmap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+            bitmap.Render(view);
             var bytes = new byte[w * h * 4];
             bitmap.CopyPixels(bytes, w * 4, 0);
             for (var y = h - 1; y >= 0; y--)
@@ -209,22 +212,35 @@ internal static class Program
             return -1;
         }
 
-        int expected = LastAlpha(body, body.ActualWidth, body.ActualHeight) - (int)Math.Round(top * scale);
-        int actual = LastAlpha(view, view.ActualWidth, view.ActualHeight);
-        Require(expected >= 0 && actual == expected,
-            $"Last painted glyph row is missing: expected device-pixel row {expected}, got {actual}.");
-        if (!verifyNegativeControl) return;
-        var prior = view.Clip;
+        var clipToBounds = view.ClipToBounds;
+        var savedClip = view.Clip;
+        Require(clipToBounds, "Production history viewport is not clipping at its bounds.");
+        var normalBottom = LastAlpha();
         try
         {
-            // Hide exactly the final ink-bearing device row. The oracle must
-            // see the failure even when the caret and line count still exist.
-            view.Clip = new RectangleGeometry(new Rect(0, 0, view.ActualWidth, expected / scale));
+            view.Clip = null;
+            view.ClipToBounds = false;
             view.UpdateLayout();
-            Require(LastAlpha(view, view.ActualWidth, view.ActualHeight) < expected,
-                "One-device-pixel clipping negative control was not detected.");
+            Require(VisualTreeHelper.GetClip(view) is null, "The same-origin reference viewport still has a clip.");
+            Require(body.TranslatePoint(new Point(0, 0), view) == bodyOrigin,
+                "Toggling the test clip moved the native text.");
+            var referenceBottom = LastAlpha();
+            Require(referenceBottom >= 0 && normalBottom == referenceBottom,
+                $"Terminal ink differs in the same viewport: unclipped row {referenceBottom}, shown row {normalBottom}.");
+            if (!verifyNegativeControl) return;
+
+            // Remove the reference's last painted pixel row using a clip at
+            // that exact device-pixel edge. The oracle still detects real loss.
+            view.Clip = new RectangleGeometry(new Rect(0, 0, width, referenceBottom / dpi.DpiScaleY));
+            view.UpdateLayout();
+            Require(LastAlpha() < referenceBottom, "One-device-pixel clipping negative control was not detected.");
         }
-        finally { view.Clip = prior; view.UpdateLayout(); }
+        finally
+        {
+            view.Clip = savedClip;
+            view.ClipToBounds = clipToBounds;
+            view.UpdateLayout();
+        }
     }
 
     private static void Require(bool condition, string message)

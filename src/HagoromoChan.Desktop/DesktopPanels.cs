@@ -635,8 +635,7 @@ internal sealed class DesktopPanels
                 _historyStack.Children.Insert(i, card.Card);
             }
             card.Viewport.Select(card.Viewport.Layout(bodyWidth, maximum, scale)[key.Page]);
-            card.Header.Text = card.Title + (key.PageCount > 1 ? $"　{key.Page + 1}/{key.PageCount}" : "") +
-                (card.Viewport.GeometryKnown ? "" : "　本文内スクロール");
+            card.Header.Text = card.Title + (key.PageCount > 1 ? $"　{key.Page + 1}/{key.PageCount}" : "");
             card.Read.Visibility = _unread.Contains(key.Id) ? Visibility.Visible : Visibility.Collapsed;
             _renderedKeys.Add(key);
             _cards.Add(key, card);
