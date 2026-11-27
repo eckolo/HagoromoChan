@@ -110,6 +110,7 @@ public partial class MainWindow : Window
         Topmost = _preferences.Topmost;
 
         _panels = new DesktopPanels(this, DismissSurfaces, OpenUnread, MarkRead, OpenComposer);
+        _panels.SetHistoryPreviewLines(_preferences.HistoryPreviewLines);
         _panels.RuntimeToggleButton.Click += (_, _) => ToggleConnectionDetails();
         MessageInput.PreviewKeyDown += MessageInput_PreviewKeyDown;
         _panels.DraftChanged += RefreshComposer;

@@ -75,6 +75,20 @@ internal sealed class NativeHistoryStack : Panel
     private readonly List<(UIElement Card, double Height)> _slots = [];
     private readonly HashSet<UIElement> _offered = [];
     private double _minimumCardHeight;
+    private readonly Dictionary<UIElement, double> _previewMinimums = [];
+    private bool _fitFromTail;
+
+    public void SetCardBudgets(bool fitFromTail, Dictionary<UIElement, double> previewMinimums)
+    {
+        if (_fitFromTail == fitFromTail && _previewMinimums.Count == previewMinimums.Count &&
+            previewMinimums.All(pair => _previewMinimums.TryGetValue(pair.Key, out var height) && height == pair.Value))
+            return;
+        _previewMinimums.Clear();
+        foreach (var (card, height) in previewMinimums) _previewMinimums.Add(card, height);
+        _fitFromTail = fitFromTail;
+        InvalidateMeasure();
+    }
+
     public bool Offers(UIElement element) => _offered.Contains(element);
 
     public void SetMinimumCardHeight(double height)
@@ -89,16 +103,18 @@ internal sealed class NativeHistoryStack : Panel
         _slots.Clear();
         if (!double.IsFinite(availableSize.Width) || !double.IsFinite(availableSize.Height)) return default;
         double used = 0;
-        foreach (UIElement card in InternalChildren)
+        for (var i = 0; i < InternalChildren.Count; i++)
         {
+            var card = InternalChildren[_fitFromTail ? InternalChildren.Count - 1 - i : i];
             var remaining = availableSize.Height - used;
-            if (remaining < _minimumCardHeight) break;
+            if (remaining < Math.Max(_minimumCardHeight, _previewMinimums.GetValueOrDefault(card))) break;
             card.Measure(new Size(availableSize.Width, remaining));
             var height = Math.Min(remaining, card.DesiredSize.Height);
             if (height <= 0) break;
             _slots.Add((card, height));
             used += height;
         }
+        if (_fitFromTail) _slots.Reverse();
         return new Size(availableSize.Width, used);
     }
 

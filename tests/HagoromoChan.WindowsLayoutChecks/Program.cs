@@ -75,7 +75,8 @@ internal static class Program
             (DockPanel Card, Border Frame, TextBox Body) Active()
             {
                 Require(stack.Children.Count > 0, "Production history card disappeared.");
-                var card = (DockPanel)stack.Children[0];
+                var anchor = (string?)type.GetField("_anchorId", Flags)!.GetValue(panels);
+                var card = stack.Children.OfType<DockPanel>().Single(c => Equals(c.Tag, anchor));
                 var frame = (Border)card.Children[1];
                 return (card, frame, (TextBox)((DockPanel)frame.Child).Children[1]);
             }
@@ -236,13 +237,52 @@ internal static class Program
             Invoke("MoveHistory", -1);
             Layout("history older document");
             var previous = Active().Body;
-            Require(previous.Text == topic &&
-                Math.Abs(previous.VerticalOffset - Math.Max(0, previous.ExtentHeight - previous.ViewportHeight)) <= 1 / scale,
-                "Crossing into the older history item did not land at its native end.");
-            Invoke("MoveHistory", 1);
+            Require(topic.StartsWith(previous.Text, StringComparison.Ordinal) && previous.Text != topic &&
+                previous.LineCount == 3 && previous.VerticalOffset <= 1 / scale,
+                "Older history did not return as a whole-line preview at its beginning.");
+            object Disclosure()
+            {
+                var (_, frame, _) = Active();
+                var header = (DockPanel)((DockPanel)frame.Child).Children[0];
+                return header.Children.OfType<Button>().Single(b =>
+                    System.Windows.Automation.AutomationProperties.GetName(b) is "全文を表示" or "折りたたむ");
+            }
+            void ToggleDisclosure()
+            {
+                var button = (Button)Disclosure();
+                button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
+                Layout("history disclosure");
+            }
+            ToggleDisclosure();
+            Require(ReferenceEquals(Active().Body, previous) && previous.Text == topic,
+                "The same older card should restore all the original text when expanded.");
+            CheckTailInkAfterScroll(previous, "gypqç");
+            ToggleDisclosure();
+            Invoke("SetHistoryPreviewLines", 2);
+            Layout("history preview setting");
+            Require(Active().Body.LineCount == 2 && Active().Body.Text != topic,
+                "Changing the preview preference did not apply to a collapsed history card.");
+            ToggleDisclosure();
+            Require(Active().Body.Text == topic, "The expanded card did not preserve the full source.");
+            // Opening the recent message advances the anchor without changing the
+            // other card; shrink enough that it really leaves the viewport.
+            Invoke("ShowMessage", "long");
             Layout("history newer document");
             Require(Active().Body.Text == longText && Active().Body.VerticalOffset <= 1 / scale,
-                "Crossing into the newer history item did not land at its native beginning.");
+                "The newer expanded item did not start at its native beginning.");
+            Invoke("MoveHistory", -1);
+            Layout("revisit older history");
+            Require(Active().Body.Text != topic && Active().Body.LineCount == 2,
+                "The older expanded card did not re-collapse after leaving the viewport.");
+            Invoke("ShowMessage", "long");
+            Layout("resume recent history");
+
+            void CheckTailInkAfterScroll(TextBox body, string suffix)
+            {
+                body.ScrollToEnd();
+                Layout("expanded history terminal");
+                CheckTailInk(window, body, suffix, verifyNegativeControl: false);
+            }
 
             Phase("SetDraftText and OpenBoth");
             Invoke("SetDraftText", longText);
