@@ -4,8 +4,6 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Automation.Text;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
 using HagoromoChan.LayoutChecks;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -16,22 +14,8 @@ using HagoromoChan.Desktop;
 internal static class Program
 {
     [STAThread]
-    public static void Main(string[] args)
+    public static void Main()
     {
-        if (args is ["long-all"] or ["layout-all"])
-        {
-            Environment.ExitCode = LongDiagnostics.Run(layout: args[0] == "layout-all");
-            return;
-        }
-        var mode = args.Length == 0 ? "full" : args.Length == 1 ? args[0] : null;
-        if (mode is not ("full" or "long-combined" or "long-selection-only" or "long-scroll-only"
-            or "long-selection-then-jump" or "long-selected-arrow" or "long-selected-wheel"
-            or "layout-short" or "layout-long" or "layout-constrained" or "layout-navigation" or "layout-composer"))
-            throw new ArgumentException("Use no arguments or exactly one M35 layout diagnostic mode.");
-        var longDiagnostic = mode.StartsWith("long-", StringComparison.Ordinal);
-        var wpf = typeof(TextBox).Assembly;
-        Phase($"case={mode}, runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}, "
-            + $"WPF={wpf.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion}");
         // A real Desktop App schedules OnStartup on the dispatcher. The
         // Loaded retry below pumps that dispatcher; production startup here
         // would open the user's data directory and take its instance lock.
@@ -129,30 +113,23 @@ internal static class Program
                     "A production bubble escapes the native HWND client.");
             }
 
-            if (mode is "full" or "layout-short" || longDiagnostic)
+            foreach (var id in new[] { "topic-user", "topic-assistant" })
             {
-                foreach (var id in new[] { "topic-user", "topic-assistant" })
-                {
-                    Phase("ShowMessage " + id);
-                    Invoke("ShowMessage", id);
-                    Layout(id);
-                    var bounds = desktop.GetMethod("Bounds")!.Invoke(null, [window])!;
-                    Require(Px(bounds, "X") >= Px(area, "X") && Px(bounds, "Y") >= Px(area, "Y") &&
-                        Px(bounds, "Right") <= Px(area, "Right") && Px(bounds, "Bottom") <= Px(area, "Bottom"),
-                        "The native HWND escaped the work area.");
-                    var (card, _, body) = Active();
-                    InsideClient(card);
-                    Require(body.Text == topic && body.IsReadOnly, "The production fixture changed its full source.");
-                    body.ScrollToEnd();
-                    Layout(id + " native end");
-                    CheckTailInk(window, body, "gypqç", verifyNegativeControl: id == "topic-user");
-                    ExerciseNativeTextHit(body);
-                }
+                Phase("ShowMessage " + id);
+                Invoke("ShowMessage", id);
+                Layout(id);
+                var bounds = desktop.GetMethod("Bounds")!.Invoke(null, [window])!;
+                Require(Px(bounds, "X") >= Px(area, "X") && Px(bounds, "Y") >= Px(area, "Y") &&
+                    Px(bounds, "Right") <= Px(area, "Right") && Px(bounds, "Bottom") <= Px(area, "Bottom"),
+                    "The native HWND escaped the work area.");
+                var (card, _, body) = Active();
+                InsideClient(card);
+                Require(body.Text == topic && body.IsReadOnly, "The production fixture changed its full source.");
+                body.ScrollToEnd();
+                Layout(id + " native end");
+                CheckTailInk(window, body, "gypqç", verifyNegativeControl: id == "topic-user");
+                ExerciseNativeTextHit(body);
             }
-
-            void Passed() => Console.WriteLine($"PASS M35 {mode}");
-            if (mode == "layout-short") { Passed(); return; }
-            if (mode == "layout-composer") { CheckComposer(); Passed(); return; }
 
             Phase("ShowMessage long");
             Invoke("ShowMessage", "long");
@@ -160,206 +137,84 @@ internal static class Program
             var (_, _, arrowBody) = Active();
             Require(arrowBody.Text == longText && arrowBody.ExtentHeight > arrowBody.ViewportHeight,
                 "Long fixture did not require a real native scroll viewport.");
+            var topBefore = arrowBody.VerticalOffset;
+            Invoke("MoveHistory", 1);
+            Layout("long down");
+            Require(ReferenceEquals(Active().Body, arrowBody) && arrowBody.VerticalOffset > topBefore,
+                "Production down arrow advanced the wrong message instead of scrolling its native body.");
+            Invoke("MoveHistory", -1);
+            Layout("long up");
+            Require(Math.Abs(arrowBody.VerticalOffset - topBefore) < .01, "Native up/down was not reversible.");
+
             var scale = VisualTreeHelper.GetDpi(root).DpiScaleX;
-            if (mode is "full" or "layout-long" || longDiagnostic)
+            var width = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [root.ActualWidth, scale])!;
+            double? x = null;
+            foreach (var side in new[] { "Right", "Left" })
             {
-                CheckHistoryArrowsAndFrame();
+                Invoke("RenderHistory", width, (double)root.ActualHeight, Enum.Parse(sideType, side), scale);
+                Layout("M22 side " + side);
+                var (_, frame, body) = Active();
+                var origin = frame.TranslatePoint(new Point(0, 0), root).X;
+                x ??= origin;
+                Require(Math.Abs(origin - x.Value) <= 1 / scale, "M22 frame moves when only the tail switches sides.");
+                Require(ReferenceEquals(body, arrowBody), "M22 frame change recreated the retained native body.");
             }
+            arrowBody.Select(0, 3);
+            arrowBody.ScrollToEnd();
+            Layout("long terminal");
+            var (longCard, _, retainedBody) = Active();
+            InsideClient(longCard);
+            Require(ReferenceEquals(arrowBody, retainedBody) && retainedBody.SelectionLength == 3 &&
+                retainedBody.Text == longText && retainedBody.VerticalOffset > 0 &&
+                Math.Abs(retainedBody.VerticalOffset - (retainedBody.ExtentHeight - retainedBody.ViewportHeight)) <= 1 / scale,
+                "Native terminal scrolling lost the original Unicode text, selection or final extent.");
+            retainedBody.Select(0, 0);
+            CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: true);
+            ExerciseNativeTextHit(retainedBody);
 
-            void CheckHistoryArrowsAndFrame()
-            {
-                var topBefore = arrowBody.VerticalOffset;
-                Invoke("MoveHistory", 1);
-                Layout("long down");
-                Require(ReferenceEquals(Active().Body, arrowBody) && arrowBody.VerticalOffset > topBefore,
-                    "Production down arrow advanced the wrong message instead of scrolling its native body.");
-                Invoke("MoveHistory", -1);
-                Layout("long up");
-                Require(Math.Abs(arrowBody.VerticalOffset - topBefore) < .01, "Native up/down was not reversible.");
+            Phase("history: constrained viewport");
+            var room = root.ActualHeight;
+            root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, 220.0]);
+            Layout("long constrained client");
+            Require(ReferenceEquals(Active().Body, retainedBody) && retainedBody.ViewportHeight > 0 &&
+                retainedBody.ViewportHeight < retainedBody.ExtentHeight && root.ActualHeight <= 220.0 + 1 / scale,
+                "The smaller layout did not retain the same bounded native document.");
+            retainedBody.ScrollToEnd();
+            Layout("long constrained terminal");
+            InsideClient(Active().Card);
+            CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: false);
+            root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, room]);
+            Layout("restore native client");
 
-                var width = (double)layout.GetMethod("BodyWidth")!.Invoke(null, [root.ActualWidth, scale])!;
-                double? x = null;
-                foreach (var side in new[] { "Right", "Left" })
-                {
-                    Invoke("RenderHistory", width, (double)root.ActualHeight, Enum.Parse(sideType, side), scale);
-                    Layout("M22 side " + side);
-                    var (_, frame, body) = Active();
-                    var origin = frame.TranslatePoint(new Point(0, 0), root).X;
-                    x ??= origin;
-                    Require(Math.Abs(origin - x.Value) <= 1 / scale, "M22 frame moves when only the tail switches sides.");
-                    Require(ReferenceEquals(body, arrowBody), "M22 frame change recreated the retained native body.");
-                }
-            }
-            if (longDiagnostic)
-            {
-                // Each case must be started in a fresh process. A FailFast is
-                // uncatchable and cannot be a control for another case.
-                void State(string phase)
-                {
-                    Phase($"{phase}: sel={arrowBody.SelectionStart}/{arrowBody.SelectionLength}, "
-                        + $"active={arrowBody.IsSelectionActive}, focus={arrowBody.IsKeyboardFocusWithin}, "
-                        + $"arranged={arrowBody.IsArrangeValid}, width={arrowBody.ActualWidth:F4}, "
-                        + $"offset={arrowBody.VerticalOffset:F4}, extent={arrowBody.ExtentHeight:F4}, "
-                        + $"viewport={arrowBody.ViewportHeight:F4}");
-                    Require(ReferenceEquals(Active().Body, arrowBody) && arrowBody.Text == longText,
-                        "The diagnostic must keep the same full document and live native body.");
-                }
+            retainedBody.ScrollToHome();
+            Layout("history older initial cursor");
+            Invoke("MoveHistory", -1);
+            Layout("history older document");
+            var previous = Active().Body;
+            Require(previous.Text == topic &&
+                Math.Abs(previous.VerticalOffset - Math.Max(0, previous.ExtentHeight - previous.ViewportHeight)) <= 1 / scale,
+                "Crossing into the older history item did not land at its native end.");
+            Invoke("MoveHistory", 1);
+            Layout("history newer document");
+            Require(Active().Body.Text == longText && Active().Body.VerticalOffset <= 1 / scale,
+                "Crossing into the newer history item did not land at its native beginning.");
 
-                State("diagnostic starting control");
-                if (mode is "long-selected-arrow" or "long-selected-wheel")
-                {
-                    ExerciseNativeTextHit(arrowBody);
-                    Layout("diagnostic native selection settled");
-                    State("diagnostic native selection");
-                    var selectionStart = arrowBody.SelectionStart;
-                    var selectionLength = arrowBody.SelectionLength;
-                    Require(selectionLength > 0, "No retained native selection to exercise.");
-                    var newer = (RepeatButton)type.GetField("_newer", Flags)!.GetValue(panels)!;
-                    var guard = 0;
-                    while (arrowBody.ExtentHeight - arrowBody.ViewportHeight - arrowBody.VerticalOffset > .01)
-                    {
-                        Require(++guard <= 256, "Production navigation did not reach the terminal extent.");
-                        var offset = arrowBody.VerticalOffset;
-                        if (mode == "long-selected-arrow")
-                        {
-                            Require(newer.IsEnabled, "Production arrow is disabled before the terminal extent.");
-                            Phase($"diagnostic production arrow {guard}");
-                            newer.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, newer));
-                        }
-                        else
-                        {
-                            Phase($"diagnostic production wheel {guard}; route={(arrowBody.IsMouseOver ? "preview hovered body" : "preview fallback to current history")}; synthetic event, no physical mouse input");
-                            var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -120)
-                            {
-                                RoutedEvent = Mouse.PreviewMouseWheelEvent,
-                                Source = arrowBody
-                            };
-                            arrowBody.RaiseEvent(wheel);
-                            Require(wheel.Handled, "Production wheel handler did not consume the routed event.");
-                        }
-                        Layout($"diagnostic {mode} {guard}");
-                        State("diagnostic after production navigation");
-                        Require(arrowBody.VerticalOffset > offset && arrowBody.SelectionStart == selectionStart &&
-                            arrowBody.SelectionLength == selectionLength, "Production navigation lost progress or selection.");
-                    }
-                    Require(guard > 0, "The production navigation control did not run.");
-                }
-                else
-                {
-                    if (mode != "long-scroll-only")
-                    {
-                        Phase("diagnostic direct Select(0,3)");
-                        arrowBody.Select(0, 3);
-                        if (mode is "long-selection-only" or "long-selection-then-jump")
-                        {
-                            Layout("diagnostic selection only");
-                            State("diagnostic after direct settled selection");
-                            Require(arrowBody.SelectionLength == 3, "Direct selection was not retained.");
-                        }
-                    }
-                    if (mode != "long-selection-only")
-                    {
-                        Phase("diagnostic direct ScrollToEnd");
-                        arrowBody.ScrollToEnd();
-                        Layout("diagnostic direct terminal jump");
-                    }
-                }
-                State("diagnostic complete");
-                if (mode != "long-selection-only")
-                    Require(arrowBody.VerticalOffset > 0 && Math.Abs(arrowBody.VerticalOffset -
-                        (arrowBody.ExtentHeight - arrowBody.ViewportHeight)) <= 1 / scale,
-                        "The terminal diagnostics must reach the actual native scroll extent.");
-                Console.WriteLine($"PASS M35 {mode}");
-                return;
-            }
-
-            var retainedBody = arrowBody;
-            if (mode is "full" or "layout-long")
-            {
-                CheckLongTerminal();
-                if (mode == "layout-long") { Passed(); return; }
-            }
-            if (mode is "full" or "layout-constrained")
-            {
-                CheckConstrainedHistory();
-                if (mode == "layout-constrained") { Passed(); return; }
-            }
-            if (mode is "full" or "layout-navigation")
-            {
-                CheckHistoryNavigation();
-                if (mode == "layout-navigation") { Passed(); return; }
-            }
-            CheckComposer();
-
-            void CheckLongTerminal()
-            {
-                Phase("long terminal: direct Select(0,3) and ScrollToEnd in the same dispatcher turn");
-                arrowBody.Select(0, 3);
-                arrowBody.ScrollToEnd();
-                Layout("long terminal");
-                var (longCard, _, currentBody) = Active();
-                InsideClient(longCard);
-                Require(ReferenceEquals(retainedBody, currentBody) && retainedBody.SelectionLength == 3 &&
-                    retainedBody.Text == longText && retainedBody.VerticalOffset > 0 &&
-                    Math.Abs(retainedBody.VerticalOffset - (retainedBody.ExtentHeight - retainedBody.ViewportHeight)) <= 1 / scale,
-                    "Native terminal scrolling lost the original Unicode text, selection or final extent.");
-                retainedBody.Select(0, 0);
-                CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: true);
-                ExerciseNativeTextHit(retainedBody);
-            }
-
-            void CheckConstrainedHistory()
-            {
-                Phase("history: constrained viewport");
-                var room = root.ActualHeight;
-                root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, 220.0]);
-                Layout("long constrained client");
-                Require(ReferenceEquals(Active().Body, retainedBody) && retainedBody.ViewportHeight > 0 &&
-                    retainedBody.ViewportHeight < retainedBody.ExtentHeight && root.ActualHeight <= 220.0 + 1 / scale,
-                    "The smaller layout did not retain the same bounded native document.");
-                retainedBody.ScrollToEnd();
-                Layout("long constrained terminal");
-                InsideClient(Active().Card);
-                CheckTailInk(window, retainedBody, "末尾gypq語", verifyNegativeControl: false);
-                root.GetType().GetMethod("SetClientBudget", Flags)!.Invoke(root, [root.ActualWidth, room]);
-                Layout("restore native client");
-            }
-
-            void CheckHistoryNavigation()
-            {
-                retainedBody.ScrollToHome();
-                Layout("history older initial cursor");
-                Invoke("MoveHistory", -1);
-                Layout("history older document");
-                var previous = Active().Body;
-                Require(previous.Text == topic &&
-                    Math.Abs(previous.VerticalOffset - Math.Max(0, previous.ExtentHeight - previous.ViewportHeight)) <= 1 / scale,
-                    "Crossing into the older history item did not land at its native end.");
-                Invoke("MoveHistory", 1);
-                Layout("history newer document");
-                Require(Active().Body.Text == longText && Active().Body.VerticalOffset <= 1 / scale,
-                    "Crossing into the newer history item did not land at its native beginning.");
-            }
-
-            void CheckComposer()
-            {
-                Phase("SetDraftText and OpenBoth");
-                Invoke("SetDraftText", longText);
-                Invoke("OpenBoth");
-                Layout("draft initial");
-                var composer = (FrameworkElement?)type.GetField("_composerBubble", Flags)!.GetValue(panels);
-                Require(composer?.IsVisible == true, "Live composer missing.");
-                InsideClient(composer!);
-                Require(editor.Text == longText && editor.VerticalScrollBarVisibility == ScrollBarVisibility.Hidden,
-                    "Composer no longer contains the full original text or gained a width-changing scrollbar.");
-                editor.CaretIndex = editor.Text.Length;
-                editor.ScrollToEnd();
-                Layout("draft terminal");
-                var end = editor.GetRectFromCharacterIndex(editor.Text.Length, trailingEdge: true);
-                Require(editor.ExtentHeight > editor.ViewportHeight && editor.VerticalOffset > 0 &&
-                    !end.IsEmpty && end.Bottom <= editor.ActualHeight,
-                    "Native composer could not reach the final caret/line in its bounded viewport.");
-            }
+            Phase("SetDraftText and OpenBoth");
+            Invoke("SetDraftText", longText);
+            Invoke("OpenBoth");
+            Layout("draft initial");
+            var composer = (FrameworkElement?)type.GetField("_composerBubble", Flags)!.GetValue(panels);
+            Require(composer?.IsVisible == true, "Live composer missing.");
+            InsideClient(composer!);
+            Require(editor.Text == longText && editor.VerticalScrollBarVisibility == ScrollBarVisibility.Hidden,
+                "Composer no longer contains the full original text or gained a width-changing scrollbar.");
+            editor.CaretIndex = editor.Text.Length;
+            editor.ScrollToEnd();
+            Layout("draft terminal");
+            var end = editor.GetRectFromCharacterIndex(editor.Text.Length, trailingEdge: true);
+            Require(editor.ExtentHeight > editor.ViewportHeight && editor.VerticalOffset > 0 &&
+                !end.IsEmpty && end.Bottom <= editor.ActualHeight,
+                "Native composer could not reach the final caret/line in its bounded viewport.");
             Console.WriteLine("PASS M35 production HWND, whole-ink graphics, M22 frame, retained Unicode text/selection and draft caret");
         }
         finally
