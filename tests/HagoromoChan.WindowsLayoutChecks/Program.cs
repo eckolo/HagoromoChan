@@ -205,12 +205,19 @@ internal static class Program
         // Render the same visual twice into the same pixel grid, changing
         // only the viewport clip. An isolated render of its child may have a
         // different text rasterization origin even at the same DPI.
-        int LastAlpha()
+        RenderTargetBitmap Capture()
         {
             var w = Math.Max(1, (int)Math.Ceiling(width * dpi.DpiScaleX));
             var h = Math.Max(1, (int)Math.Ceiling(height * dpi.DpiScaleY));
             var bitmap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
             bitmap.Render(view);
+            return bitmap;
+        }
+
+        static int LastAlpha(BitmapSource bitmap)
+        {
+            var w = bitmap.PixelWidth;
+            var h = bitmap.PixelHeight;
             var bytes = new byte[w * h * 4];
             bitmap.CopyPixels(bytes, w * 4, 0);
             for (var y = h - 1; y >= 0; y--)
@@ -222,7 +229,7 @@ internal static class Program
         var clipToBounds = view.ClipToBounds;
         var savedClip = view.Clip;
         Require(clipToBounds, "Production history viewport is not clipping at its bounds.");
-        var normalBottom = LastAlpha();
+        var normalBottom = LastAlpha(Capture());
         try
         {
             view.Clip = null;
@@ -231,16 +238,18 @@ internal static class Program
             Require(VisualTreeHelper.GetClip(view) is null, "The same-origin reference viewport still has a clip.");
             Require(body.TranslatePoint(new Point(0, 0), view) == bodyOrigin,
                 "Toggling the test clip moved the native text.");
-            var referenceBottom = LastAlpha();
+            var reference = Capture();
+            var referenceBottom = LastAlpha(reference);
             Require(referenceBottom >= 0 && normalBottom == referenceBottom,
                 $"Terminal ink differs in the same viewport: unclipped row {referenceBottom}, shown row {normalBottom}.");
             if (!verifyNegativeControl) return;
 
-            // Remove the reference's last painted pixel row using a clip at
-            // that exact device-pixel edge. The oracle still detects real loss.
-            view.Clip = new RectangleGeometry(new Rect(0, 0, width, referenceBottom / dpi.DpiScaleY));
-            view.UpdateLayout();
-            Require(LastAlpha() < referenceBottom, "One-device-pixel clipping negative control was not detected.");
+            // Test the detector with an exact device-pixel crop of the same
+            // raster. An extra live WPF DIPs clip is not an independent oracle:
+            // it can snap/antialias at a different device-pixel edge.
+            Require(referenceBottom > 0, "The clipping fixture has no painted rows to crop.");
+            var cropped = new CroppedBitmap(reference, new Int32Rect(0, 0, reference.PixelWidth, referenceBottom));
+            Require(LastAlpha(cropped) < referenceBottom, "One-device-pixel clipping negative control was not detected.");
         }
         finally
         {
