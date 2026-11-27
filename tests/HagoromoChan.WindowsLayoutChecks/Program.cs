@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Markup;
+using System.Xml.Linq;
 using HagoromoChan.Contracts;
 using HagoromoChan.Desktop;
 
@@ -12,8 +14,17 @@ internal static class Program
     [STAThread]
     public static void Main()
     {
-        var app = new App();
-        app.InitializeComponent();
+        // Load the original styles, not an App instance: the latter queues
+        // production startup on this dispatcher and can open real data.
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        using var xaml = typeof(Program).Assembly.GetManifestResourceStream("ProductionApp.xaml")
+            ?? throw new InvalidOperationException("Production styles were not embedded.");
+        var source = XElement.Load(xaml);
+        var ns = source.Name.Namespace;
+        var styles = new XElement(ns + "ResourceDictionary",
+            source.Attributes().Where(attribute => attribute.IsNamespaceDeclaration),
+            source.Element(ns + "Application.Resources")!.Elements());
+        app.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(styles.ToString()));
         var type = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
         var owner = new Window();
         var panels = Activator.CreateInstance(type, owner, (Action)(() => { }),

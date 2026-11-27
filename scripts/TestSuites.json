@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Core",
+    "platform": "Any",
+    "project": "HagoromoChan.Tests",
+    "framework": "net10.0",
+    "arguments": [],
+    "listArguments": [
+      "--list"
+    ],
+    "selectionPrefix": "Core.",
+    "selectArgument": "--test-name"
+  },
+  {
+    "name": "WindowsLayout",
+    "platform": "Windows",
+    "project": "HagoromoChan.WindowsLayoutChecks",
+    "framework": "net10.0-windows",
+    "arguments": [],
+    "cases": [
+      "WindowsLayout.RenderedHistory"
+    ]
+  }
+]
