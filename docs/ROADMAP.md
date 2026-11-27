@@ -52,6 +52,8 @@
 | M41 | アプリ起動時のキャラクターアクション | 優先度は着手時に確認 | M08・M09・M21（完了） | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
 | MGMT-42 | 履歴発言の折りたたみを登録 | 管理 | MGMT-40 | `milestone/MGMT-42-register-history-collapse` | [MGMT-42](milestones/MGMT-42.md) |
 | M43 | 履歴の発言ごとの折りたたみ表示 | 優先度は着手時に確認 | M03・M22、M35と整合 | `milestone/M43-history-message-collapse` | [M43](milestones/M43.md) |
+| MGMT-44 | 共通テスト基盤の計画を登録 | 管理 | MGMT-42 | `milestone/MGMT-44-register-shared-test-runner` | [MGMT-44](milestones/MGMT-44.md) |
+| M45 | 自動テストの共通実行基盤 | 最優先 | MGMT-44 | `milestone/M45-shared-test-runner` | [M45](milestones/M45.md) |
 
 ## 着手順と依存
 
@@ -67,6 +69,8 @@
 - MGMT-25: 履歴カードの時間経過による非表示は M26、履歴窓・入力窓の背景透過は M27。M14 は閲覧操作による新着解除のまま、M22 は位置合わせ・長文表示のまま。Markdown表示は M28、画像ファイル送受信は M29。共有する表示箇所は統合時に回帰を確認する。
 - アプリ本体マイルストーンの名称・目的・優先度はユーザーの提示・承認に基づく。詳細な仕様・完了条件は着手時に確定する。個別記録の完了条件は暫定案であり、未承認の仕様追加を意味しない。
 - 既存の通信実証は現行実装の成果として扱い、新たなアプリ本体マイルストーンにはしない。
+- M45 を最優先とし、現行ソースの自動テストを共通の入口へまとめる。画面機能の修正や他のマイルストーンの完了条件を置き換えない。
+
 
 ## 更新方針
 

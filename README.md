@@ -48,18 +48,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Update.ps1
     dotnet run --project .\src\HagoromoChan.Relay
     dotnet run --project .\src\HagoromoChan.Desktop
 
-## 開発テスト
-
-確認対象のコミットをチェックアウトして、リポジトリのルートで実行します。.NET SDK の要件は [global.json](global.json) を参照してください。どのコマンドもビルドし直してから検査を実行し、対象の Git コミットと成否を表示します。アプリ本体の更新、普段の会話データの使用、トンネル接続は行いません。例の `-ExecutionPolicy Bypass` はその起動中の PowerShell にだけ適用します。端末の設定は変更しません。
-
-| 対象 | PowerShell から実行 |
-| --- | --- |
-| 基本の自動回帰 | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite Core` |
-| Windows の会話窓・入力欄の描画 | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite WindowsLayout` |
-| 両方（Windows） | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -Suite All` |
-
-`WindowsLayout` は合成データの小窓を一時的に開きます。通常の羽衣ちゃんを終了する必要はありません。テストスクリプトは失敗があっても次の独立した検査を続け、最後に各結果と全体の成否を表示します。ビルドが失敗した検査は古いバイナリを実行せず、全体は終了コード1を返します。検査プロセスそのものが強制終了した場合、そのプロセス内の未実行項目は続行できません。通常起動での確認を指定された場合は、テストスクリプトで代用せず通常どおり起動してください。
-
 ## 羽衣ちゃんを接続する
 
 ### 1. ローカル中継を起動する
@@ -138,9 +126,19 @@ PCのスリープ中はローカル中継へのツール呼び出しを受け取
 ## 開発と検証
 
 ```powershell
-dotnet build .\HagoromoChan.sln --configuration Release
-dotnet run --project .\tests\HagoromoChan.Tests --configuration Release
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1
 ```
+
+同じ `Test.ps1` を、引数なしで実行すると現行の自動検査をすべて実行します。実行対象を調べたり、1件だけ選んだりする場合も入口は同じです。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -List
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test.ps1 -TestName Core.Persistence
+```
+
+`-List` はIDを表示するために必要なビルドをしますが、テストは実行しません。`-TestName` は一覧にあるIDを完全一致で1件だけ実行し、不明なIDは非ゼロ終了です。Windowsの描画テストは合成データのみを使い、普段のアプリを停止する必要はありません。Windows以外では描画検査を `SKIP` とし、残りが合格しても全体は `PARTIAL` と表示します。実行できない検査を直接指定した場合は非ゼロ終了です。失敗後も独立した検査を続け、最後に結果をまとめます。失敗した検査が特定できる場合は、再実行に使えるIDを `FAILED TEST` として表示します。各検査のビルド出力は実行ごとに新しい一時フォルダーへ分け、作業コピーの既存の `bin` / `obj` は使いません。終了時に今回の一時出力だけを削除します。失敗したビルドの古いバイナリは実行しません。
+
+旧M14の固定版検査 `scripts/Test-M14-HistoryRead.ps1` は当時のコミットとローカルNuGetパッケージを指定する履歴再現用です。現在のソースの自動回帰には含めません。
 
 | プロジェクト | 役割 |
 | --- | --- |

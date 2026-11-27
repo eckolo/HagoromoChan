@@ -125,6 +125,29 @@ internal static class Program
                 var (card, _, body) = Active();
                 InsideClient(card);
                 Require(body.Text == topic && body.IsReadOnly, "The production fixture changed its full source.");
+                if (id == "topic-user")
+                {
+                    // Both characters belong to the very same logical paragraph.
+                    // Extent/line count alone would pass because other paragraphs
+                    // already contain explicit CRLFs. The Japanese paragraph is
+                    // intentionally wider than the maximally sized body at the
+                    // production font; do not artificially narrow this window.
+                    // Compare actual caret rows, not a nominal pixel estimate.
+                    Phase("M22 native soft-wrap in the first visible paragraph");
+                    var paragraphEnd = body.Text.IndexOf('\r');
+                    Require(paragraphEnd > 1 && !body.Text[..paragraphEnd].Contains('\n'),
+                        "The soft-wrap fixture needs one uninterrupted first paragraph.");
+                    Require(body.VerticalOffset == 0, "The first paragraph is not at the viewport origin.");
+                    var presenter = FindPresenter(body);
+                    Require(presenter is not null, "The native text viewport is missing.");
+                    var viewport = presenter!.TransformToAncestor(body).TransformBounds(new Rect(new Point(), presenter.RenderSize));
+                    var firstRect = body.GetRectFromCharacterIndex(0, trailingEdge: false);
+                    var lastRect = body.GetRectFromCharacterIndex(paragraphEnd - 1, trailingEdge: true);
+                    Require(!firstRect.IsEmpty && !lastRect.IsEmpty && firstRect.Top >= viewport.Top &&
+                        lastRect.Bottom <= viewport.Bottom && lastRect.Top > firstRect.Top,
+                        $"M22 soft wrap not visible: first={firstRect}, last={lastRect}, viewport={viewport}.");
+                    Phase("M22 native soft-wrap completed");
+                }
                 body.ScrollToEnd();
                 Layout(id + " native end");
                 CheckTailInk(window, body, "gypqç", verifyNegativeControl: id == "topic-user");
