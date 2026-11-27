@@ -593,7 +593,6 @@ internal sealed class DesktopPanels
         label.TextWrapping = TextWrapping.NoWrap;
         header.Children.Add(label);
         var body = HistoryBodyBox();
-        body.IsReadOnly = true;
         body.Text = message.Text;
         body.Width = body.MaxWidth = bodyWidth;
         DockPanel.SetDock(header, Dock.Top);
@@ -878,11 +877,16 @@ internal sealed class DesktopPanels
         TextWrapping = TextWrapping.Wrap, Foreground = Ink
     };
 
-    private static TextBox BodyBox() => ConfigureBodyBox(new TextBox());
-    private static TextBox HistoryBodyBox() => ConfigureBodyBox(new HistoryTextBox());
-
-    private static TextBox ConfigureBodyBox(TextBox body)
+    private static TextBox HistoryBodyBox()
     {
+        var body = BodyBox();
+        body.IsReadOnly = true;
+        return body;
+    }
+
+    private static TextBox BodyBox()
+    {
+        var body = new ConversationTextBox();
         body.TextWrapping = TextWrapping.Wrap;
         body.AcceptsReturn = true;
         body.FontSize = 14;

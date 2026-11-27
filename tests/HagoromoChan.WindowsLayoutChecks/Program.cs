@@ -134,7 +134,7 @@ internal static class Program
                     // intentionally wider than the maximally sized body at the
                     // production font; do not artificially narrow this window.
                     // Compare actual caret rows, not a nominal pixel estimate.
-                    Phase("M22 native soft-wrap in the first visible paragraph");
+                    Phase("Native soft-wrap in the first visible paragraph");
                     var paragraphEnd = body.Text.IndexOf('\r');
                     Require(paragraphEnd > 1 && !body.Text[..paragraphEnd].Contains('\n'),
                         "The soft-wrap fixture needs one uninterrupted first paragraph.");
@@ -146,8 +146,8 @@ internal static class Program
                     var lastRect = body.GetRectFromCharacterIndex(paragraphEnd - 1, trailingEdge: true);
                     Require(!firstRect.IsEmpty && !lastRect.IsEmpty && firstRect.Top >= viewport.Top &&
                         lastRect.Bottom <= viewport.Bottom && lastRect.Top > firstRect.Top,
-                        $"M22 soft wrap not visible: first={firstRect}, last={lastRect}, viewport={viewport}.");
-                    Phase("M22 native soft-wrap completed");
+                        $"Soft wrap not visible: first={firstRect}, last={lastRect}, viewport={viewport}.");
+                    Phase("Native soft-wrap completed");
                 }
                 body.ScrollToEnd();
                 Layout(id + " native end");
@@ -176,20 +176,16 @@ internal static class Program
             foreach (var side in new[] { "Right", "Left" })
             {
                 Invoke("RenderHistory", width, (double)root.ActualHeight, Enum.Parse(sideType, side), scale);
-                Layout("M22 side " + side);
+                Layout("Bubble tail side: " + side);
                 var (_, frame, body) = Active();
                 var origin = frame.TranslatePoint(new Point(0, 0), root).X;
                 x ??= origin;
-                Require(Math.Abs(origin - x.Value) <= 1 / scale, "M22 frame moves when only the tail switches sides.");
-                Require(ReferenceEquals(body, arrowBody), "M22 frame change recreated the retained native body.");
+                Require(Math.Abs(origin - x.Value) <= 1 / scale, "The bubble frame moves when only the tail switches sides.");
+                Require(ReferenceEquals(body, arrowBody), "The bubble frame change recreated the retained native body.");
             }
             // Continue through the real arrow handler with no selection: this
             // is the failing production path, not merely a direct API jump.
-            var presenterForLong = FindPresenter(arrowBody);
-            Require(presenterForLong is { CanContentScroll: false, ScrollOwner: not null } &&
-                presenterForLong.ViewportHeight == arrowBody.ViewportHeight &&
-                presenterForLong.ExtentHeight == arrowBody.ExtentHeight,
-                "The native history presenter is not the physical scroll owner.");
+            RequirePhysicalScrollOwner(arrowBody, "History");
             var newer = (RepeatButton)type.GetField("_newer", Flags)!.GetValue(panels)!;
             var steps = 0;
             while (arrowBody.ExtentHeight - arrowBody.ViewportHeight - arrowBody.VerticalOffset > .01)
@@ -255,18 +251,28 @@ internal static class Program
             var composer = (FrameworkElement?)type.GetField("_composerBubble", Flags)!.GetValue(panels);
             Require(composer?.IsVisible == true, "Live composer missing.");
             InsideClient(composer!);
-            Require(FindPresenter(editor) is { CanContentScroll: true },
-                "History-only physical scrolling must not replace the native composer scroll path.");
+            RequirePhysicalScrollOwner(editor, "Draft");
             Require(editor.Text == longText && editor.VerticalScrollBarVisibility == ScrollBarVisibility.Hidden,
                 "Composer no longer contains the full original text or gained a width-changing scrollbar.");
+            Phase("Draft: move the caret and scroll to the end");
             editor.CaretIndex = editor.Text.Length;
             editor.ScrollToEnd();
             Layout("draft terminal");
-            var end = editor.GetRectFromCharacterIndex(editor.Text.Length, trailingEdge: true);
-            Require(editor.ExtentHeight > editor.ViewportHeight && editor.VerticalOffset > 0 &&
-                !end.IsEmpty && end.Bottom <= editor.ActualHeight,
-                "Native composer could not reach the final caret/line in its bounded viewport.");
-            Console.WriteLine("PASS M35 production HWND, whole-ink graphics, M22 frame, retained Unicode text/selection and draft caret");
+            CheckDraftEnd(editor);
+            Phase("Draft: edit and undo at the end");
+            const string addition = "追記😀";
+            editor.SelectedText = addition;
+            editor.CaretIndex = editor.Text.Length;
+            Layout("draft after editing");
+            Require(editor.Text == longText + addition &&
+                Equals(type.GetProperty("DraftText")!.GetValue(panels), editor.Text),
+                "The native edit did not preserve the full draft and notify the application.");
+            CheckDraftEnd(editor);
+            editor.Undo();
+            Layout("draft after undo");
+            Require(editor.Text == longText && Equals(type.GetProperty("DraftText")!.GetValue(panels), longText),
+                "Undo did not restore the full draft.");
+            Console.WriteLine("PASS conversation layout: history rendering, navigation and editable draft");
         }
         finally
         {
@@ -276,9 +282,29 @@ internal static class Program
         }
     }
 
+    private static void RequirePhysicalScrollOwner(TextBox body, string surface)
+    {
+        var presenter = FindPresenter(body);
+        Require(presenter is { CanContentScroll: false, ScrollOwner: not null } &&
+            presenter.ViewportHeight == body.ViewportHeight && presenter.ExtentHeight == body.ExtentHeight,
+            $"{surface}: the native presenter does not own the scroll range.");
+    }
+
+    private static void CheckDraftEnd(TextBox editor)
+    {
+        var presenter = FindPresenter(editor)!;
+        var view = presenter.TransformToAncestor(editor).TransformBounds(new Rect(new Point(), presenter.RenderSize));
+        var end = editor.GetRectFromCharacterIndex(editor.Text.Length, trailingEdge: true);
+        var pixel = 1 / VisualTreeHelper.GetDpi(editor).DpiScaleY;
+        Require(editor.CaretIndex == editor.Text.Length && editor.ExtentHeight > editor.ViewportHeight &&
+            editor.VerticalOffset > 0 && !end.IsEmpty && end.Top >= view.Top - pixel &&
+            end.Bottom <= view.Bottom + pixel,
+            $"The final draft caret is not visible: caret={end}, viewport={view}, offset={editor.VerticalOffset}.");
+    }
+
     private static void Phase(string phase)
     {
-        Console.WriteLine("M35 STAGE: " + phase);
+        Console.WriteLine("TRACE conversation layout: " + phase);
         Console.Out.Flush();
     }
 
@@ -315,7 +341,6 @@ internal static class Program
         // selection, not claimed by this foreground-based raster.
         var factory = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
         var reference = (TextBox)factory.GetMethod("HistoryBodyBox", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!;
-        reference.IsReadOnly = true;
         reference.Text = finalLine;
         reference.Width = reference.MaxWidth = body.ActualWidth;
         var tint = new SolidColorBrush(Color.FromRgb(255, 0, 255));
