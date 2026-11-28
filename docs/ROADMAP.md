@@ -60,6 +60,8 @@
 | MGMT-49 | 待機時の瞬き・回答待ちモーションの速度調整をM33に追加 | 管理 | MGMT-48、M21・M33 | `milestone/MGMT-49-record-idle-motion-pacing` | [MGMT-49](milestones/MGMT-49.md) |
 | MGMT-50 | 履歴カード優先のスクロールをM47に追加 | 管理 | M47、M35・M28 | `milestone/MGMT-50-record-history-scroll-priority` | [MGMT-50](milestones/MGMT-50.md) |
 | MGMT-51 | main統合時の未完了一覧の報告を定例化 | 管理 | MGMT-50、開発運用手順 | `milestone/MGMT-51-record-completion-backlog` | [MGMT-51](milestones/MGMT-51.md) |
+| MGMT-52 | 手振りの途切れをM53として登録 | 管理 | MGMT-51、M21 | `milestone/MGMT-52-register-finite-motion-continuity` | [MGMT-52](milestones/MGMT-52.md) |
+| M53 | 有限モーションが短い押下で途切れる不具合を修正 | 優先度は着手時に確認 | M21（完了）、M41と共通再生の境界を確認 | `milestone/M53-finite-motion-continuity` | [M53](milestones/M53.md) |
 
 ## 着手順と依存
 
