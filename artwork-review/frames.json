@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "status": "review-candidates",
+  "windows_tested": false,
+  "reference_commit": "86fceaf8f7742112f7c0457c85ce02b400be06ad",
+  "units": "source px; frame-local anchor measured at the lower edge of the soles",
+  "pixel_format": "RGBA8 PNG, straight alpha",
+  "reference_neutral_for_preview": "src/HagoromoChan.Desktop/Assets/Mascot.png; normalized to 349 px visible height, foot anchor (144,360).",
+  "cell_size": [
+    288,
+    368
+  ],
+  "common_foot_anchor": [
+    144,
+    360
+  ],
+  "frame_slots": [
+    "entry",
+    "apex",
+    "recovery"
+  ],
+  "rect_xywh": [
+    [
+      0,
+      0,
+      288,
+      368
+    ],
+    [
+      288,
+      0,
+      288,
+      368
+    ],
+    [
+      576,
+      0,
+      288,
+      368
+    ]
+  ],
+  "preview": {
+    "window_dip_at_96dpi": [
+      176,
+      260
+    ],
+    "cell_rect_xywh_in_preview": [
+      0,
+      35,
+      176,
+      225
+    ],
+    "still_columns": [
+      "idle",
+      "entry",
+      "apex",
+      "recovery",
+      "idle"
+    ],
+    "still_backgrounds": [
+      "#f7f4ef",
+      "#2b2e35"
+    ],
+    "apng_idle_pause_ms": 1000
+  },
+  "motions": [
+    {
+      "id": "startup-bow",
+      "name_ja": "起動のお辞儀",
+      "sprite": "startup-bow/sprite.png",
+      "proof": "startup-bow/compare-260.png",
+      "playback": "startup-bow/playback-260.png",
+      "source_sha": "ca49357b1873356dbb49dc7e9c7325c67f4cb4de",
+      "sequence": [
+        "existing_idle",
+        0,
+        1,
+        2,
+        "existing_idle"
+      ],
+      "frame_ms": [
+        260,
+        150,
+        300
+      ],
+      "duration_ms": 710,
+      "metrics": [
+        {
+          "alpha128_bounds_xywh": [
+            20,
+            15,
+            233,
+            345
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            19,
+            47,
+            240,
+            313
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            23,
+            17,
+            231,
+            343
+          ],
+          "last_sole_pixel_y": 359
+        }
+      ]
+    },
+    {
+      "id": "menu-peek-left",
+      "name_ja": "メニューをのぞく・画面左",
+      "sprite": "menu-peek-left/sprite.png",
+      "proof": "menu-peek-left/compare-260.png",
+      "playback": "menu-peek-left/playback-260.png",
+      "source_sha": "bcf71fb6e7c40732e513f53c29cacde06ca6cde1",
+      "sequence": [
+        "existing_idle",
+        0,
+        1,
+        2,
+        "existing_idle"
+      ],
+      "frame_ms": [
+        130,
+        130,
+        180
+      ],
+      "duration_ms": 440,
+      "metrics": [
+        {
+          "alpha128_bounds_xywh": [
+            33,
+            11,
+            225,
+            349
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            7,
+            16,
+            244,
+            344
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            28,
+            11,
+            224,
+            349
+          ],
+          "last_sole_pixel_y": 359
+        }
+      ]
+    },
+    {
+      "id": "menu-peek-right",
+      "name_ja": "メニューをのぞく・画面右",
+      "sprite": "menu-peek-right/sprite.png",
+      "proof": "menu-peek-right/compare-260.png",
+      "playback": "menu-peek-right/playback-260.png",
+      "source_sha": "52e0b7b918ba8a9829f93d710304b21c5fc5f222",
+      "sequence": [
+        "existing_idle",
+        0,
+        1,
+        2,
+        "existing_idle"
+      ],
+      "frame_ms": [
+        130,
+        130,
+        180
+      ],
+      "duration_ms": 440,
+      "metrics": [
+        {
+          "alpha128_bounds_xywh": [
+            30,
+            11,
+            218,
+            349
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            37,
+            12,
+            231,
+            348
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            36,
+            11,
+            218,
+            349
+          ],
+          "last_sole_pixel_y": 359
+        }
+      ]
+    },
+    {
+      "id": "conversation-open",
+      "name_ja": "会話窓を開く・首かしげ",
+      "sprite": "conversation-open/sprite.png",
+      "proof": "conversation-open/compare-260.png",
+      "playback": "conversation-open/playback-260.png",
+      "source_sha": "7679ab095f419119c8dc0a479c3557154e99bc3d",
+      "sequence": [
+        "existing_idle",
+        0,
+        1,
+        2,
+        "existing_idle"
+      ],
+      "frame_ms": [
+        180,
+        180,
+        220
+      ],
+      "duration_ms": 580,
+      "metrics": [
+        {
+          "alpha128_bounds_xywh": [
+            18,
+            11,
+            226,
+            349
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            18,
+            11,
+            226,
+            349
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            19,
+            12,
+            225,
+            348
+          ],
+          "last_sole_pixel_y": 359
+        }
+      ]
+    },
+    {
+      "id": "conversation-close",
+      "name_ja": "会話窓を閉じる・小さな会釈",
+      "sprite": "conversation-close/sprite.png",
+      "proof": "conversation-close/compare-260.png",
+      "playback": "conversation-close/playback-260.png",
+      "source_sha": "827993ad9f66498a84897d8c3bb8b09495288298",
+      "sequence": [
+        "existing_idle",
+        0,
+        1,
+        2,
+        "existing_idle"
+      ],
+      "frame_ms": [
+        140,
+        65,
+        190
+      ],
+      "duration_ms": 395,
+      "metrics": [
+        {
+          "alpha128_bounds_xywh": [
+            24,
+            13,
+            233,
+            347
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            24,
+            19,
+            235,
+            341
+          ],
+          "last_sole_pixel_y": 359
+        },
+        {
+          "alpha128_bounds_xywh": [
+            25,
+            12,
+            235,
+            348
+          ],
+          "last_sole_pixel_y": 359
+        }
+      ]
+    }
+  ]
+}
