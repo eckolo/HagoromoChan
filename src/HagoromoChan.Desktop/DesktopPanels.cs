@@ -63,13 +63,29 @@ internal sealed class DesktopPanels
     private readonly HistoryPresentation _historyPresentation = new();
     private readonly Dictionary<string, (string Text, HistoryBodyMeasurement Measurement)> _historyMeasurements = new(StringComparer.Ordinal);
     private HashSet<string> _displayedHistory = new(StringComparer.Ordinal);
+    // Raw view is local to one continuous display of a history card. It
+    // survives remeasuring/recreating the card, but not leaving history.
+    private readonly HashSet<string> _historySourceViews = new(StringComparer.Ordinal);
     private (double Width, double X, double Y, int Lines) _measurementKey;
     private (double Available, OverlaySide Side) _protectionBudget;
     private bool _historyProtectionDirty = true;
     private int _historyPreviewLines = HistoryPresentation.DefaultPreviewLines;
-    private sealed record HistoryCard(DockPanel Card, Button Read, TextBox Body, Button Disclosure)
+    // Declarative left-to-right groups for actions in a history card header.
+    private enum HistoryHeaderVisibility
+    {
+        TemporaryOnMatchingCards,
+        TemporaryOnAllCards,
+        PersistentOnMatchingCards,
+        PersistentOnAllCards
+    }
+
+    private sealed record HistoryCard(DockPanel Card, DockPanel Content, Button Read, TextBox Plain,
+        Button Disclosure, Button Format, string Source)
     {
         public bool Collapsed { get; set; }
+        public bool TriedFormatting { get; set; }
+        public RichTextBox? Formatted { get; set; }
+        public TextBoxBase Body => (TextBoxBase)Content.Children[1];
     }
 
     public void SetHistoryPreviewLines(int lines)
@@ -554,6 +570,7 @@ internal sealed class DesktopPanels
     {
         _historyPresentation.LeftDisplay(_displayedHistory);
         _displayedHistory.Clear();
+        _historySourceViews.Clear();
     }
 
     private void QueueHistoryDisplayCommit()
@@ -575,6 +592,8 @@ internal sealed class DesktopPanels
                 _historyStack.Offers(card.Card)).ToHashSet(StringComparer.Ordinal);
             _historyPresentation.LeftDisplay(_displayedHistory.Except(next));
             _displayedHistory = next;
+            if (_historySourceViews.RemoveWhere(id => !next.Contains(id)) > 0)
+                RequestArrange();
         }));
     }
 
@@ -675,12 +694,12 @@ internal sealed class DesktopPanels
         {
             var id = wanted[i];
             var message = _history[first + i];
-            if (!_liveHistory.TryGetValue(id, out var card))
+            if (!_liveHistory.TryGetValue(id, out var card) || card.Source != message.Text)
             {
+                if (card is not null) _historyStack.Children.Remove(card.Card);
                 card = BuildHistoryCard(message, bodyWidth, side);
-                _liveHistory.Add(id, card);
+                _liveHistory[id] = card;
             }
-            card.Body.Width = card.Body.MaxWidth = bodyWidth;
             var measure = MeasureHistory(message, bodyWidth, dpi);
             var preview = measure.CanCollapse && _historyPresentation.IsCollapsed(id)
                 ? measure.Excerpts.LastOrDefault(excerpt => excerpt.Height + chrome <= layoutAvailable)
@@ -688,13 +707,7 @@ internal sealed class DesktopPanels
             card.Collapsed = preview is not null;
             if (preview is not null)
                 previewMinimums.Add(card.Card, preview.Height + chrome);
-            var text = preview?.Text ?? message.Text;
-            if (card.Body.Text != text)
-            {
-                card.Body.Text = text;
-                card.Body.ScrollToHome();
-            }
-            card.Body.VerticalScrollBarVisibility = card.Collapsed ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Hidden;
+            RenderHistoryBody(card, preview, bodyWidth, _historySourceViews.Contains(id));
             card.Disclosure.Visibility = measure.CanCollapse ? Visibility.Visible : Visibility.Collapsed;
             card.Disclosure.Content = card.Collapsed ? "⌄" : "⌃";
             DescribeButton(card.Disclosure, card.Collapsed ? "全文を表示" : "折りたたむ");
@@ -721,19 +734,36 @@ internal sealed class DesktopPanels
         var title = $"{role}　{message.CreatedAt.LocalDateTime:M/d HH:mm}";
         var header = new DockPanel { Height = BubbleLayout.HistoryHeader, Margin = new Thickness(0, 0, 0, BubbleLayout.HistoryHeaderGap) };
         var copy = SymbolButton("⧉", "この発言の全文をコピー", () => Copy(message.Text));
-        DockPanel.SetDock(copy, Dock.Right);
-        header.Children.Add(copy);
         var read = SymbolButton("✓", "この回答を既読にする", () => _markRead([message.Id]));
         read.Visibility = Visibility.Collapsed;
-        DockPanel.SetDock(read, Dock.Right);
-        header.Children.Add(read);
         var disclosure = SymbolButton("⌄", "全文を表示", () =>
         {
             if (_liveHistory.TryGetValue(message.Id, out var card))
                 SetHistoryCollapsed(message.Id, !card.Collapsed);
         });
-        DockPanel.SetDock(disclosure, Dock.Right);
-        header.Children.Add(disclosure);
+        var format = SymbolButton("{ }", "原文を表示", () =>
+        {
+            if (!_liveHistory.TryGetValue(message.Id, out var card) || card.Collapsed ||
+                card.Formatted is null || !_historyStack.Offers(card.Card))
+                return;
+            if (!_historySourceViews.Remove(message.Id)) _historySourceViews.Add(message.Id);
+            RequestArrange();
+        });
+        format.Visibility = Visibility.Collapsed;
+        // Keep the established visual order within each group. A right-docked
+        // child occupies space from the outer edge inward, so add in reverse.
+        (Button Button, HistoryHeaderVisibility Group)[] headerActions =
+        [
+            (read, HistoryHeaderVisibility.TemporaryOnMatchingCards),
+            (format, HistoryHeaderVisibility.PersistentOnMatchingCards),
+            (disclosure, HistoryHeaderVisibility.PersistentOnMatchingCards),
+            (copy, HistoryHeaderVisibility.PersistentOnAllCards)
+        ];
+        foreach (var (button, _) in headerActions.OrderBy(action => action.Group).Reverse())
+        {
+            DockPanel.SetDock(button, Dock.Right);
+            header.Children.Add(button);
+        }
         var label = Label(title, 12);
         label.FontWeight = FontWeights.SemiBold;
         label.VerticalAlignment = VerticalAlignment.Center;
@@ -750,7 +780,50 @@ internal sealed class DesktopPanels
         var bubble = Bubble(content, user ? UserPaper : AssistantPaper, user ? Opposite(side) : side);
         bubble.Margin = new Thickness(0, 0, 0, Gap);
         TrackHistoryClick(bubble, () => SetHistoryCollapsed(message.Id, false));
-        return new(bubble, read, body, disclosure);
+        return new(bubble, content, read, body, disclosure, format, message.Text);
+    }
+
+    private static void RenderHistoryBody(HistoryCard card, HistoryExcerpt? preview, double width, bool showSource)
+    {
+        if (preview is null && !card.TriedFormatting)
+        {
+            card.TriedFormatting = true;
+            if (HistoryMarkdown.TryCreateDocument(card.Source) is { } document)
+            {
+                card.Formatted = new ConversationRichTextBox
+                {
+                    Document = document, IsReadOnly = true, IsDocumentEnabled = false,
+                    FontFamily = card.Plain.FontFamily, FontSize = card.Plain.FontSize,
+                    Foreground = card.Plain.Foreground, Background = Brushes.Transparent,
+                    Padding = new Thickness(0), BorderThickness = new Thickness(0),
+                    UseLayoutRounding = true, ClipToBounds = true,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Hidden
+                };
+            }
+        }
+
+        var target = preview is null && !showSource && card.Formatted is { } rich
+            ? (TextBoxBase)rich : card.Plain;
+        target.Width = target.MaxWidth = width;
+        if (target is TextBox plain)
+        {
+            var text = preview?.Text ?? card.Source;
+            if (plain.Text != text)
+            {
+                plain.Text = text;
+                plain.ScrollToHome();
+            }
+            plain.VerticalScrollBarVisibility = preview is null ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Disabled;
+        }
+        if (!ReferenceEquals(card.Body, target))
+        {
+            card.Content.Children.RemoveAt(1);
+            card.Content.Children.Add(target);
+            target.ScrollToHome();
+        }
+        card.Format.Visibility = preview is null && card.Formatted is not null ? Visibility.Visible : Visibility.Collapsed;
+        DescribeButton(card.Format, showSource ? "書式付きで表示" : "原文を表示");
     }
 
     private static void TrackHistoryClick(DockPanel bubble, Action expand)
@@ -796,7 +869,7 @@ internal sealed class DesktopPanels
         bubble.MouseLeave += (_, _) => pressed = null;
     }
 
-    private static bool ScrollBody(TextBox box, int wheelDelta)
+    private static bool ScrollBody(TextBoxBase box, int wheelDelta)
     {
         var maximum = box.ExtentHeight - box.ViewportHeight;
         if (wheelDelta == 0 || !double.IsFinite(maximum) || maximum <= .01)

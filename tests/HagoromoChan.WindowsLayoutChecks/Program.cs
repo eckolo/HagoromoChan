@@ -5,6 +5,7 @@ using System.Windows.Automation.Provider;
 using System.Windows.Automation.Text;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using HagoromoChan.LayoutChecks;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -343,6 +344,149 @@ internal static class Program
             Layout("draft after undo");
             Require(editor.Text == longText && Equals(type.GetProperty("DraftText")!.GetValue(panels), longText),
                 "Undo did not restore the full draft.");
+            Phase("Native Markdown history and original view");
+            Invoke("CloseComposer");
+            const string safeLink = "[確認](https://example.invalid/a)";
+            const string inertImage = "![画像](https://example.invalid/image.png)";
+            const string inertMarkup = "<script>example</script>";
+            var markdown = "# 日本語の見出し 😀\r\n\r\n" +
+                "- **太字**・*強調*・`inline`\r\n- " + safeLink + " と " + inertImage + "\r\n\r\n" +
+                "> 引用 " + inertMarkup + "\r\n\r\n" +
+                "```txt\r\n" + string.Concat(Enumerable.Repeat("ABC123日本語😀", 80)) + "\r\n```\r\n\r\n" +
+                string.Join("\r\n\r\n", Enumerable.Repeat("日本語の長文を狭い会話窓でも読めます。", 26)) +
+                "\r\n\r\n書式の末尾語";
+            Invoke("UpdateHistory", new[]
+            {
+                new ChatMessage(4, "rich", "assistant", markdown, null, DateTimeOffset.UnixEpoch),
+                new ChatMessage(5, "after-rich", "assistant", "次の発言", null, DateTimeOffset.UnixEpoch)
+            }, new[] { "rich" });
+            Invoke("ShowMessage", "rich");
+            Layout("rich history");
+            (DockPanel Card, DockPanel Content) ActiveContent()
+            {
+                var card = (DockPanel)stack.Children[0];
+                return (card, (DockPanel)((Border)card.Children[1]).Child);
+            }
+            Button HistoryButton(string name) => ((DockPanel)ActiveContent().Content.Children[0]).Children
+                .OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == name);
+            void ClickHistoryButton(string name)
+            {
+                var button = HistoryButton(name);
+                button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
+                Layout(name);
+            }
+            var headerNames = new[] { "この回答を既読にする", "原文を表示", "折りたたむ", "この発言の全文をコピー" };
+            void CheckHistoryHeader(string[] expected)
+            {
+                var header = (DockPanel)ActiveContent().Content.Children[0];
+                var names = header.Children.OfType<Button>()
+                    .Where(button => button.IsVisible)
+                    .OrderBy(button => button.TranslatePoint(new Point(0, 0), header).X)
+                    .Select(button => System.Windows.Automation.AutomationProperties.GetName(button))
+                    .ToArray();
+                Require(names.SequenceEqual(expected), "History header actions were not in the expected visual order.");
+            }
+            CheckHistoryHeader(headerNames);
+            var rich = ActiveContent().Content.Children[1] as RichTextBox;
+            Require(rich is { IsReadOnly: true, IsDocumentEnabled: false },
+                "Supported Markdown did not open by default as a read-only native document.");
+            RichTextBox formatted = rich!;
+            Require(formatted.Document.Blocks.FirstBlock is Paragraph first && first.FontWeight == FontWeights.Bold,
+                "The Markdown heading was not rendered as a native heading.");
+            Require(formatted.Document.Blocks.OfType<System.Windows.Documents.List>().Count() == 1,
+                "The Markdown list was not rendered with native list structure.");
+            var shown = new TextRange(formatted.Document.ContentStart, formatted.Document.ContentEnd).Text;
+            Require(shown.Contains(safeLink, StringComparison.Ordinal) && shown.Contains(inertImage, StringComparison.Ordinal) &&
+                shown.Contains(inertMarkup, StringComparison.Ordinal) && shown.Contains("書式の末尾語", StringComparison.Ordinal),
+                "The native Markdown contained missing or activated external syntax.");
+            ClickHistoryButton("原文を表示");
+            Require(Active().Body.Text == markdown, "The original view lost Markdown syntax or text.");
+            ClickHistoryButton("書式付きで表示");
+            Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted),
+                "A format toggle replaced the retained native document.");
+            // Recreating the card after read-state changes must not be required
+            // to hide the read action, or to retain the order of the others.
+            Invoke("UpdateHistory", new[]
+            {
+                new ChatMessage(4, "rich", "assistant", markdown, null, DateTimeOffset.UnixEpoch),
+                new ChatMessage(5, "after-rich", "assistant", "次の発言", null, DateTimeOffset.UnixEpoch)
+            }, Array.Empty<string>());
+            Layout("Markdown read-state controls");
+            Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted),
+                "Changing unread state replaced the native document.");
+            CheckHistoryHeader(headerNames[1..]);
+            // A tall desktop can fit the entire formatted fixture. Use the same
+            // production client constraint as the plain-history regression, so
+            // this check exercises overflow regardless of monitor height.
+            var markdownClient = root.RenderSize;
+            const double markdownHeight = 300.0;
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, markdownHeight]);
+            Layout("Markdown constrained client");
+            InsideClient(ActiveContent().Card);
+            Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted) &&
+                root.ActualHeight <= markdownHeight + 1 / scale,
+                "The Markdown card was not retained in the constrained client.");
+            RequirePhysicalScrollOwner(formatted, "Markdown history");
+            Console.WriteLine(FormattableString.Invariant(
+                $"TRACE conversation layout: Markdown constrained viewport={formatted.ViewportHeight:F2}, extent={formatted.ExtentHeight:F2}, offset={formatted.VerticalOffset:F2}"));
+            Require(formatted.ViewportHeight > 0 && formatted.ExtentHeight - formatted.ViewportHeight > 1 / scale,
+                "The long Markdown did not expose a native scroll range in the constrained client.");
+            var markdownNext = (RepeatButton)type.GetField("_newer", Flags)!.GetValue(panels)!;
+            void ClickArrow(RepeatButton arrow)
+            {
+                arrow.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, arrow));
+                Layout("history arrow");
+            }
+            for (int i = 0; i < 250 && formatted.ExtentHeight - formatted.ViewportHeight - formatted.VerticalOffset > .01; i++)
+            {
+                var before = formatted.VerticalOffset;
+                ClickArrow(markdownNext);
+                Require(ReferenceEquals(ActiveContent().Content.Children[1], formatted) &&
+                    formatted.VerticalOffset > before,
+                    "The arrow failed to advance the same formatted message before its body tail.");
+            }
+            var richViewport = FindPresenter(formatted)!;
+            var richView = richViewport.TransformToAncestor(formatted)
+                .TransformBounds(new Rect(new Point(), richViewport.RenderSize));
+            var endRect = formatted.Document.ContentEnd.GetInsertionPosition(LogicalDirection.Backward)
+                .GetCharacterRect(LogicalDirection.Backward);
+            var dip = 1 / VisualTreeHelper.GetDpi(formatted).DpiScaleY;
+            Require(formatted.VerticalOffset > 0 && formatted.ExtentHeight - formatted.ViewportHeight - formatted.VerticalOffset <= dip &&
+                !endRect.IsEmpty && endRect.Top >= richView.Top - dip && endRect.Bottom <= richView.Bottom + dip,
+                "The last formatted row was not visible at the native scroll tail.");
+            ClickArrow(markdownNext);
+            Require(Active().Body.Text == "次の発言", "The arrow at the native Markdown tail did not move to the next message.");
+            var older = (RepeatButton)type.GetField("_older", Flags)!.GetValue(panels)!;
+            ClickArrow(older);
+            Require(Active().Body.Text != markdown && markdown.StartsWith(Active().Body.Text, StringComparison.Ordinal),
+                "Returning to the old Markdown card did not preserve its plain collapsed preview.");
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, markdownClient.Height]);
+            Layout("restore Markdown client");
+
+            Phase("Markdown source view lifetime");
+            void ShowFormattedHistory(string stage)
+            {
+                Invoke("ShowMessage", "rich");
+                Layout(stage);
+                Require(ActiveContent().Content.Children[1] is RichTextBox,
+                    "Returning to an expanded Markdown card did not restore its default formatted view.");
+            }
+            ShowFormattedHistory("initial formatted view");
+            ClickHistoryButton("原文を表示");
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, 0.0]);
+            window.UpdateLayout();
+            historyBudgetSetter.Invoke(root, [markdownClient.Width, markdownClient.Height]);
+            Layout("source view after intermediate relayout");
+            Require(Active().Body.Text == markdown, "Intermediate layout reset the visible card's source view.");
+            Invoke("HideSurfaces");
+            Layout("hide conversation");
+            ShowFormattedHistory("reopen conversation");
+            ClickHistoryButton("原文を表示");
+            Invoke("ShowMessage", "after-rich");
+            Layout("leave the source card");
+            Require(Active().Body.Text == "次の発言", "The source card did not leave the visible history.");
+            ShowFormattedHistory("revisit the source card");
+
             Console.WriteLine("PASS conversation layout: history rendering, navigation and editable draft");
         }
         finally
@@ -353,7 +497,7 @@ internal static class Program
         }
     }
 
-    private static void RequirePhysicalScrollOwner(TextBox body, string surface)
+    private static void RequirePhysicalScrollOwner(TextBoxBase body, string surface)
     {
         var presenter = FindPresenter(body);
         Require(presenter is { CanContentScroll: false, ScrollOwner: not null } &&

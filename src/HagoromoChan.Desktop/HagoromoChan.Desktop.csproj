@@ -11,6 +11,8 @@
     <RootNamespace>HagoromoChan.Desktop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Markdig" Version="[1.6.0]" />
+    <None Update="licenses/Markdig.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="../HagoromoChan.Contracts/HagoromoChan.Contracts.csproj" />
     <Resource Include="Assets/Mascot.png" />
     <Resource Include="Assets/MascotReactions.png" />
