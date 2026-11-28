@@ -202,14 +202,14 @@ internal static class CharacterReactionTests
         startup.ObserveStartup(initialized: true, firstFrameRendered: false, 0);
         Check(startup.Sample(1).Pose == ReactionPose.Idle, "a loaded but not yet painted mascot never bows");
         startup.ObserveStartup(initialized: true, firstFrameRendered: true, 2);
-        Check(startup.Sample(521) is { ArtworkCell: 0, DurationMs: 1420 }, "the bow entry lasts 520 ms");
-        var bow = startup.Sample(522);
+        Check(startup.Sample(1041) is { ArtworkCell: 0, DurationMs: 2840 }, "the bow entry lasts 1040 ms");
+        var bow = startup.Sample(1042);
         Check(bow is { Pose: ReactionPose.StartupBow, Artwork: LocalMotionCells.Startup, ArtworkCell: 1 },
             "startup bows with a body change rather than gaze alone");
-        Check(startup.Sample(822).ArtworkCell == 2 && startup.Sample(1421).ArtworkCell == 2,
-            "the bow apex lasts 300 ms and recovery lasts 600 ms");
-        startup.ObserveStartup(initialized: true, firstFrameRendered: true, 1422);
-        Check(startup.Sample(1422).Pose == ReactionPose.Idle && !startup.WaitingForReply,
+        Check(startup.Sample(1641).ArtworkCell == 1 && startup.Sample(1642).ArtworkCell == 2 && startup.Sample(2841).ArtworkCell == 2,
+            "the bow apex lasts 600 ms and recovery lasts 1200 ms");
+        startup.ObserveStartup(initialized: true, firstFrameRendered: true, 2842);
+        Check(startup.Sample(2842).Pose == ReactionPose.Idle && !startup.WaitingForReply,
             "repeated first-frame callbacks do not bow or mutate the relay");
         var off = new CharacterReactionState();
         off.SetEnabled(false, 0);
@@ -221,14 +221,20 @@ internal static class CharacterReactionTests
         var longBow = new CharacterReactionState();
         longBow.ObserveStartup(true, true, 0);
         longBow.ObserveMenu(true, 20, 10);
-        Check(longBow.Sample(1419).Pose == ReactionPose.StartupBow &&
-              longBow.Sample(1420) is { Pose: ReactionPose.MenuPeek, Artwork: LocalMotionCells.TiltLeft },
+        longBow.Suspend(true, 100);
+        longBow.Suspend(false, 1100); // a legal hold may carry the same live menu beyond ordinary queue expiry
+        Check(longBow.Sample(3839).Pose == ReactionPose.StartupBow &&
+              longBow.Sample(3840) is { Pose: ReactionPose.MenuPeek, Artwork: LocalMotionCells.TiltLeft },
             "the immediate menu's peek survives the long bow and starts at its boundary");
         var closedDuringBow = new CharacterReactionState();
         closedDuringBow.ObserveStartup(true, true, 0);
         closedDuringBow.ObserveMenu(true, -20, 10);
+        closedDuringBow.Receive([Row(1, "unrelated arrival")], 20);
+        closedDuringBow.Suspend(true, 50);
         closedDuringBow.ObserveMenu(false, 0, 100);
-        Check(closedDuringBow.Sample(1420).Pose == ReactionPose.Idle, "closing during the bow discards a waiting peek");
+        closedDuringBow.Suspend(false, 1050);
+        Check(closedDuringBow.Sample(3840).Pose == ReactionPose.Idle,
+            "a closed menu is discarded and unrelated queued arrivals still expire");
         var closingBow = new CharacterReactionState();
         closingBow.ObserveStartup(true, true, 0);
         closingBow.BeginShutdown(0, animate: true);
@@ -249,17 +255,17 @@ internal static class CharacterReactionTests
         {
             var placedMenu = new CharacterReactionState();
             placedMenu.ObserveMenu(true, offset, 0);
-            Check(placedMenu.Sample(0) is { DurationMs: 580 } frame && frame.Artwork == key,
+            Check(placedMenu.Sample(0) is { DurationMs: 1160 } frame && frame.Artwork == key,
                 "menu tilt uses the side opposite its actual placement and keeps the tilt tempo");
         }
 
         var menu = new CharacterReactionState();
         menu.ObserveMenu(true, -1, 10);
         menu.Receive([Row(1, "new")], 20);
-        var peek = menu.Sample(200);
+        var peek = menu.Sample(390);
         Check(peek is { Pose: ReactionPose.MenuPeek, Artwork: LocalMotionCells.TiltRight, ArtworkCell: 1 },
             "one short reaction visibly leans away from the open menu");
-        Check(menu.Sample(590).Pose == ReactionPose.Still && menu.Sample(3100).Pose == ReactionPose.Still,
+        Check(menu.Sample(1170).Pose == ReactionPose.Still && menu.Sample(3100).Pose == ReactionPose.Still,
             "a long-open menu does not replay or run normal background actions");
         menu.ObserveMenu(false, 0, 3101);
         Check(menu.Sample(3101).Pose == ReactionPose.Idle, "no stale menu or expired arrival");
@@ -268,7 +274,7 @@ internal static class CharacterReactionTests
         reopen.ObserveMenu(false, 0, 150);
         reopen.ObserveMenu(true, 1, 160);
         Check(reopen.Sample(200).Artwork == LocalMotionCells.TiltRight, "a new target cannot flip a protected visual");
-        Check(reopen.Sample(580).Pose == ReactionPose.MenuPeek && reopen.Sample(750).Artwork == LocalMotionCells.TiltLeft,
+        Check(reopen.Sample(1160).Pose == ReactionPose.MenuPeek && reopen.Sample(1500).Artwork == LocalMotionCells.TiltLeft,
             "the next peek uses the next menu side only after the first ends");
         var quickMenu = new CharacterReactionState();
         quickMenu.Fail(0);
@@ -282,7 +288,7 @@ internal static class CharacterReactionTests
         {
             var opened = new CharacterReactionState();
             opened.ConversationChanged(false, true, 0, mascotClick: true, conversationOffsetX: offset);
-            Check(opened.Sample(150) is { Pose: ReactionPose.ConversationOpen, DurationMs: 440, ArtworkCell: 1 } frame
+            Check(opened.Sample(300) is { Pose: ReactionPose.ConversationOpen, DurationMs: 880, ArtworkCell: 1 } frame
                   && frame.Artwork == key, "the visible conversation gets a peek in its direction");
         }
         var queuedOpen = new CharacterReactionState();
@@ -308,19 +314,19 @@ internal static class CharacterReactionTests
         Check(window.Sample(1).Pose == ReactionPose.Idle, "no open reaction for automatic or unchanged visibility");
         window.ObserveVisibility(false);
         window.ConversationChanged(false, true, 10, mascotClick: true);
-        Check(window.Sample(200) is { Pose: ReactionPose.ConversationOpen, Artwork: LocalMotionCells.PeekRight, ArtworkCell: 1 },
+        Check(window.Sample(300) is { Pose: ReactionPose.ConversationOpen, Artwork: LocalMotionCells.PeekRight, ArtworkCell: 1 },
             "explicit mascot open uses the existing upper-body peek");
-        window.Suspend(true, 220);
-        var held = window.Sample(240);
-        window.Suspend(false, 260);
-        window.ConversationChanged(true, false, 260, mascotClick: true);
-        Check(held.Pose == ReactionPose.ConversationOpen && window.Sample(489).Pose == ReactionPose.ConversationOpen,
+        window.Suspend(true, 320);
+        var held = window.Sample(340);
+        window.Suspend(false, 360);
+        window.ConversationChanged(true, false, 360, mascotClick: true);
+        Check(held.Pose == ReactionPose.ConversationOpen && window.Sample(929).Pose == ReactionPose.ConversationOpen,
             "closing does not cut off the previous protected expression");
-        Check(window.Sample(490).Pose == ReactionPose.ConversationClose, "close follows the completed open");
-        Check(window.Sample(675) is { Pose: ReactionPose.ConversationClose, Artwork: LocalMotionCells.Close, ArtworkCell: 1 },
+        Check(window.Sample(930).Pose == ReactionPose.ConversationClose, "close follows the completed open");
+        Check(window.Sample(1300) is { Pose: ReactionPose.ConversationClose, Artwork: LocalMotionCells.Close, ArtworkCell: 1 },
             "close uses a small nod instead of a shutdown farewell");
-        window.BeginShutdown(1100, true);
-        Check(window.Sample(1100).Pose == ReactionPose.Shutdown, "normal shutdown retains its existing dedicated farewell");
+        window.BeginShutdown(1380, true);
+        Check(window.Sample(1380).Pose == ReactionPose.Shutdown, "normal shutdown retains its existing dedicated farewell");
 
         var definitions = new (string Key, Action<CharacterReactionState> Start)[]
         {
@@ -332,12 +338,12 @@ internal static class CharacterReactionTests
             (LocalMotionCells.Close, x => x.ConversationChanged(true, false, 0, mascotClick: true))
         };
         foreach (var (key, start) in definitions)
-        foreach (var skippedTick in Enumerable.Range(-1, 31))
+        foreach (var skippedTick in Enumerable.Range(-1, 61))
         {
             var motion = new CharacterReactionState();
             start(motion);
             var frames = new List<int>();
-            for (var tick = 0; tick <= 1450; tick += 50)
+            for (var tick = 0; tick <= 2950; tick += 50)
             {
                 if (tick / 50 == skippedTick) continue; // one 100 ms render gap
                 var frame = motion.Sample(tick);

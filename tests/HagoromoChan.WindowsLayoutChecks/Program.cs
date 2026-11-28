@@ -526,10 +526,54 @@ internal static class Program
                     Math.Abs(child.Rect.Y + 360 * scale - (original.PixelHeight - 8 * scale)) < .001,
                     $"foot anchor mismatch: {key}/{cell}");
             }
-            Require(keys.Count == 5, "all five local-action sheets are mapped");
+            Require(keys.ToHashSet(StringComparer.Ordinal).SetEquals(new[]
+                { "startup-bow", "head-tilt-left", "head-tilt-right", "peek-left", "peek-right", "conversation-close" }),
+                "all local-action sheets are mapped");
+            foreach (var height in new[] { 120d, 180d, 260d })
+            foreach (var dpiScale in new[] { 1d, 1.25, 1.5, 2d })
+            {
+                type.GetMethod("SetDisplayScale")!.Invoke(artwork,
+                    [Math.Min(1, height * dpiScale / original.PixelHeight)]);
+                var neutral = (DrawingImage)type.GetProperty("RestingImage")!.GetValue(artwork)!;
+                var expected = RenderLowerMascotPixels(neutral, original, height, dpiScale);
+                Require(expected.Any(value => value != 0), "the resting lower-body comparison is not blank");
+                for (var cell = 0; cell < 3; cell++)
+                {
+                    var bow = (DrawingImage)frame.Invoke(artwork, ["startup-bow", 0d, 0d, 0d, cell])!;
+                    var neutralBody = (ImageDrawing)((DrawingGroup)neutral.Drawing).Children[1];
+                    var bowBody = (ImageDrawing)((DrawingGroup)bow.Drawing).Children[1];
+                    var a = neutralBody.Rect;
+                    var b = bowBody.Rect;
+                    Require(Math.Abs(a.X - b.X) < .001 && Math.Abs(a.Y - b.Y) < .001 &&
+                        Math.Abs(a.Width - b.Width) < .001 && Math.Abs(a.Height - b.Height) < .001,
+                        $"rest/bow drawing placement differs at {height}/{dpiScale}, cell {cell}");
+                    Require(expected.AsSpan().SequenceEqual(RenderLowerMascotPixels(bow, original, height, dpiScale)),
+                        $"rest/bow rendered foot pixels differ at {height}/{dpiScale}, cell {cell}");
+                }
+            }
         }
         finally { cleanDirectory.Delete(true); }
         Console.WriteLine("PASS local-action exact WPF resource, crop and anchor for every drawn cell");
+    }
+
+    private static byte[] RenderLowerMascotPixels(ImageSource source, BitmapSource original, double height, double dpiScale)
+    {
+        // Match the leading mascot Image in MainWindow; no production App startup or user data.
+        var width = original.PixelWidth * height / original.PixelHeight;
+        var image = new Image { Source = source, Stretch = Stretch.Uniform,
+            StretchDirection = StretchDirection.DownOnly, UseLayoutRounding = true };
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+        image.Measure(new Size(width, height));
+        image.Arrange(new Rect(0, 0, width, height));
+        image.UpdateLayout();
+        var pixelWidth = (int)Math.Ceiling(width * dpiScale);
+        var pixelHeight = (int)Math.Ceiling(height * dpiScale);
+        var bitmap = new RenderTargetBitmap(pixelWidth, pixelHeight, 96 * dpiScale, 96 * dpiScale, PixelFormats.Pbgra32);
+        bitmap.Render(image);
+        var lowerStart = pixelHeight * 3 / 4;
+        var pixels = new byte[pixelWidth * (pixelHeight - lowerStart) * 4];
+        bitmap.CopyPixels(new Int32Rect(0, lowerStart, pixelWidth, pixelHeight - lowerStart), pixels, pixelWidth * 4, 0);
+        return pixels;
     }
 
     private static void RequirePhysicalScrollOwner(TextBoxBase body, string surface)

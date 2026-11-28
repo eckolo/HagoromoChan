@@ -188,8 +188,11 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     }
 
     private static ReactionTimeline Clip(int ms) => new(false, new ReactionTimeline.Part(ms, false, 0, 1));
+    private const int DrawnMotionTimeScale = 2;
     private static ReactionTimeline DrawnMotion(int entry, int apex, int recovery) =>
-        new(false, new(entry, false, 0, 0, 0), new(apex, false, 0, 0, 1), new(recovery, false, 0, 0, 2));
+        new(false, new(entry * DrawnMotionTimeScale, false, 0, 0, 0),
+            new(apex * DrawnMotionTimeScale, false, 0, 0, 1),
+            new(recovery * DrawnMotionTimeScale, false, 0, 0, 2));
 
     // Custom packs lack neutral internal frames; declare their safe phases with the same motion.
     private static readonly IReadOnlyDictionary<ReactionPose, MotionDefinition> Motions =
@@ -219,10 +222,10 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             new(ReactionPose.StartupBow, LocalMotionCells.Startup, DrawnMotion(520, 300, 600),
                 ShutdownPlaybackLimitMs: 710),
             new(ReactionPose.MenuPeek, LocalMotionCells.TiltRight, DrawnMotion(180, 180, 220),
-                Coalesce: true, WhileMenuOpen: true, LeftArtwork: LocalMotionCells.TiltLeft),
-            new(ReactionPose.ConversationOpen, LocalMotionCells.PeekRight, DrawnMotion(130, 130, 180), Visible: true, LeftArtwork: LocalMotionCells.PeekLeft),
+                Coalesce: true, WhileMenuOpen: true, LeftArtwork: LocalMotionCells.TiltLeft, ShutdownPlaybackLimitMs: 580),
+            new(ReactionPose.ConversationOpen, LocalMotionCells.PeekRight, DrawnMotion(130, 130, 180), Visible: true, LeftArtwork: LocalMotionCells.PeekLeft, ShutdownPlaybackLimitMs: 440),
             // The authored 65ms apex could be lost to a 100ms render gap.
-            new(ReactionPose.ConversationClose, LocalMotionCells.Close, DrawnMotion(140, 120, 190), Visible: false)
+            new(ReactionPose.ConversationClose, LocalMotionCells.Close, DrawnMotion(140, 120, 190), Visible: false, ShutdownPlaybackLimitMs: 450)
         }.ToDictionary(motion => motion.Pose);
 
     private Playing Start(MotionDefinition motion, long now, bool faceLeft = false) =>
@@ -529,8 +532,8 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     }
 
     private void Prune(long nowMs) => _pending.RemoveAll(item =>
-        nowMs - item.At >= QueueLifetimeMs || item.Definition.Visible is bool desired && desired != _visible ||
-        item.Definition.WhileMenuOpen && !_menuOpen);
+        (item.Definition.WhileMenuOpen ? !_menuOpen : nowMs - item.At >= QueueLifetimeMs) ||
+        item.Definition.Visible is bool desired && desired != _visible);
 
     private void Advance(long nowMs)
     {
