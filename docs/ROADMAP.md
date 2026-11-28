@@ -58,6 +58,7 @@
 | M47 | 履歴の未読アイコン配置と新着からの返信導線 | 優先度は着手時に確認 | M03・M14（完了）、M18との整合を確認 | `milestone/M47-unread-and-reply-controls` | [M47](milestones/M47.md) |
 | MGMT-48 | 頭上窓の新着選択時の履歴配置をM47へ追加 | 管理 | MGMT-46、M47・M14の定義 | `milestone/MGMT-48-record-unread-history-layout` | [MGMT-48](milestones/MGMT-48.md) |
 | MGMT-49 | 待機時の瞬き・回答待ちモーションの速度調整をM33に追加 | 管理 | MGMT-48、M21・M33 | `milestone/MGMT-49-record-idle-motion-pacing` | [MGMT-49](milestones/MGMT-49.md) |
+| MGMT-50 | 履歴カード優先のスクロールをM47に追加 | 管理 | M47、M35・M28 | `milestone/MGMT-50-record-history-scroll-priority` | [MGMT-50](milestones/MGMT-50.md) |
 
 ## 着手順と依存
 
