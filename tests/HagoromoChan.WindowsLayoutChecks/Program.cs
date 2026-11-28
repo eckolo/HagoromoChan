@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Automation.Peers;
@@ -27,6 +28,7 @@ internal static class Program
         {
             Source = new Uri("/HagoromoChan.Desktop;component/DesktopResources.xaml", UriKind.Relative)
         });
+        CheckLocalMotionResources();
         var type = typeof(App).Assembly.GetType("HagoromoChan.Desktop.DesktopPanels", true)!;
         var owner = new Window { WindowStartupLocation = WindowStartupLocation.Manual, Width = 132, Height = 140, ShowActivated = false };
         var panels = Activator.CreateInstance(type, owner, (Action)(() => { }),
@@ -495,6 +497,39 @@ internal static class Program
             if (window.IsLoaded) window.Close();
             if (owner.IsVisible) owner.Close();
         }
+    }
+
+    private static void CheckLocalMotionResources()
+    {
+        var assembly = typeof(App).Assembly;
+        var model = assembly.GetType("HagoromoChan.Desktop.LocalMotionCells", true)!;
+        var keys = (IReadOnlyList<string>)model.GetProperty("Keys")!.GetValue(null)!;
+        var type = assembly.GetType("HagoromoChan.Desktop.CharacterReactionArtwork", true)!;
+        var uri = new Uri("pack://application:,,,/HagoromoChan.Desktop;component/Assets/Mascot.png");
+        var original = new BitmapImage(uri);
+        var cleanDirectory = Directory.CreateTempSubdirectory("local-action-art-test-");
+        try
+        {
+            var artwork = Activator.CreateInstance(type, original, cleanDirectory.FullName, true)!;
+            var frame = type.GetMethod("Frame")!;
+            var idle = type.GetProperty("RestingImage")!.GetValue(artwork)!;
+            foreach (var key in keys)
+            for (var cell = 0; cell < 3; cell++)
+            {
+                var image = (DrawingImage)frame.Invoke(artwork, [key, 0d, 0d, 0d, cell])!;
+                Require(!ReferenceEquals(image, idle), $"unexpected fallback for {key}/{cell}");
+                var child = (ImageDrawing)((DrawingGroup)image.Drawing).Children[1];
+                var crop = (CroppedBitmap)child.ImageSource;
+                Require(crop.SourceRect == new Int32Rect(288 * cell, 0, 288, 368), $"wrong source cell {key}/{cell}");
+                var scale = child.Rect.Width / 288;
+                Require(Math.Abs(child.Rect.X + 144 * scale - original.PixelWidth / 2.0) < .001 &&
+                    Math.Abs(child.Rect.Y + 360 * scale - (original.PixelHeight - 8 * scale)) < .001,
+                    $"foot anchor mismatch: {key}/{cell}");
+            }
+            Require(keys.Count == 5, "all five local-action sheets are mapped");
+        }
+        finally { cleanDirectory.Delete(true); }
+        Console.WriteLine("PASS local-action exact WPF resource, crop and anchor for every drawn cell");
     }
 
     private static void RequirePhysicalScrollOwner(TextBoxBase body, string surface)

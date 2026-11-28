@@ -15,6 +15,7 @@
     <None Update="licenses/Markdig.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="../HagoromoChan.Contracts/HagoromoChan.Contracts.csproj" />
     <Resource Include="Assets/Mascot.png" />
+    <Resource Include="Assets/LocalActions/*.png" />
     <Resource Include="Assets/MascotReactions.png" />
     <Resource Include="Assets/MascotThinkingBody.png" />
     <Resource Include="Assets/MascotThinkingHead.png" />

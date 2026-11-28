@@ -21,6 +21,8 @@ internal sealed class BundledReactionDrawing
     private readonly BitmapSource _farewellHand;
     private readonly Rect _canvas;
     private readonly Dictionary<(Pose Pose, int Step), ImageSource> _drawings = new();
+    private readonly Dictionary<string, BitmapSource[]> _localSheets = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Key, int Cell), ImageSource> _localDrawings = new();
     private double _displayScale = 1;
     private Pose _lastLook = Pose.Neutral;
 
@@ -83,6 +85,51 @@ internal sealed class BundledReactionDrawing
         if (_displayScale == scale) return;
         _displayScale = scale;
         _drawings.Clear();
+        _localDrawings.Clear();
+    }
+
+    public ImageSource LocalFrame(string key, int index)
+    {
+        if (!LocalMotionCells.Contains(key) || index < 0 || index >= LocalMotionCells.Count)
+            return RestingImage;
+        if (_localDrawings.TryGetValue((key, index), out var artwork)) return artwork;
+        if (!_localSheets.TryGetValue(key, out var cells))
+        {
+            var sheet = LoadBitmap($"LocalActions/{key}.png");
+            if (sheet.PixelWidth != LocalMotionCells.Width * LocalMotionCells.Count ||
+                sheet.PixelHeight != LocalMotionCells.Height)
+                throw new InvalidDataException($"同梱の個別動作素材 {key} のセル寸法が不正です。");
+            cells = new BitmapSource[LocalMotionCells.Count];
+            for (var i = 0; i < cells.Length; ++i)
+            {
+                var cell = new CroppedBitmap(sheet, new Int32Rect(
+                    i * LocalMotionCells.Width, 0, LocalMotionCells.Width, LocalMotionCells.Height));
+                cell.Freeze();
+                cells[i] = cell;
+            }
+            _localSheets.Add(key, cells);
+        }
+
+        var image = cells[index];
+        var scale = Math.Min(1 / _displayScale,
+            Math.Min(_canvas.Width / image.PixelWidth, _canvas.Height / image.PixelHeight));
+        // The canvas and the sole baseline are identical to the bundled idle;
+        // cell coordinates are never reflected, tilted or stretched.
+        var anchor = new Point(_canvas.Width / 2,
+            _canvas.Bottom - (image.PixelHeight - LocalMotionCells.FootY) * scale);
+        var bounds = new Rect(anchor.X - LocalMotionCells.FootX * scale,
+            anchor.Y - LocalMotionCells.FootY * scale,
+            image.PixelWidth * scale, image.PixelHeight * scale);
+        var drawing = new DrawingGroup();
+        using (var context = drawing.Open())
+        {
+            context.DrawRectangle(Brushes.Transparent, null, _canvas);
+            context.DrawImage(image, bounds);
+        }
+        var drawingImage = new DrawingImage(drawing);
+        drawingImage.Freeze();
+        _localDrawings.Add((key, index), drawingImage);
+        return drawingImage;
     }
 
     public ImageSource Frame(string action, double progress, double gazeX, double gazeY)

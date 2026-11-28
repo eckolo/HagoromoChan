@@ -145,6 +145,10 @@ internal sealed class CharacterReactionPack
 
     public bool HasAction(string action) => _actions.ContainsKey(action);
 
+    public BitmapSource SelectLocalCell(string key, int cell) =>
+        _actions.TryGetValue(key, out var frames) && cell >= 0 && cell < frames.Length
+            ? frames[cell].Bitmap : _actions["idle"][0].Bitmap;
+
     public BitmapSource Select(string action, double progress, double gazeX, double gazeY)
     {
         // A legacy waiting sequence is a timed loop; look is a sheet of 16 directions.

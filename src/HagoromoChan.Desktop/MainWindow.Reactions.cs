@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace HagoromoChan.Desktop;
@@ -20,7 +19,6 @@ public partial class MainWindow
     private bool _gazeSampling;
     private bool _reactionsClosed;
     private bool _mascotFirstFrame;
-    private readonly MatrixTransform _mascotMotionTransform = new();
 
     private void ObserveInitialMascotFrame()
     {
@@ -29,22 +27,9 @@ public partial class MainWindow
         RenderReactions(this, EventArgs.Empty);
     }
 
-    private void ApplyMotionVisual(ReactionVisual visual)
-    {
-        var width = MascotImage.ActualWidth;
-        var height = MascotImage.ActualHeight;
-        var matrix = Matrix.Identity;
-        matrix.ScaleAt(1 + visual.WidthDelta, 1 + visual.HeightDelta, width / 2, height);
-        matrix.RotateAt(visual.Degrees, width / 2, height * .6);
-        matrix.Translate(visual.OffsetX * width, visual.OffsetY * height);
-        if (!_mascotMotionTransform.Matrix.Equals(matrix))
-            _mascotMotionTransform.Matrix = matrix;
-    }
-
     private void StartReactions()
     {
         RestingSilhouette.Source = MascotImage.Source;
-        MascotImage.RenderTransform = _mascotMotionTransform;
         _reactionTimer.Tick += RenderReactions;
         SystemParameters.StaticPropertyChanged += ReactionSystemSettingChanged;
         ApplyReactionSettings();
@@ -87,7 +72,6 @@ public partial class MainWindow
                 RenderReactions(this, EventArgs.Empty);
             else
             {
-                ApplyMotionVisual(default);
                 MascotImage.Source = RestingSilhouette.Source;
             }
             return;
@@ -161,8 +145,7 @@ public partial class MainWindow
                 && _lastBounds is { } bounds)
                 direction = _panels.UnreadDirection(bounds);
 
-            var image = _reactionArtwork.Frame(frame.Artwork, progress, direction.X, direction.Y);
-            ApplyMotionVisual(frame.Visual);
+            var image = _reactionArtwork.Frame(frame.Artwork, progress, direction.X, direction.Y, frame.ArtworkCell);
             if (!ReferenceEquals(image, MascotImage.Source)) MascotImage.Source = image;
             var interval = frame.AllowsGaze ? 100 : 50;
             if (_reactionTimer.Interval.TotalMilliseconds != interval)
@@ -177,7 +160,6 @@ public partial class MainWindow
             _reactions.SetEnabled(false, Environment.TickCount64);
             ResetWindowGaze();
             _cursorGaze.Reset();
-            ApplyMotionVisual(default);
             MascotImage.Source = RestingSilhouette.Source;
             if (_localExitQueued)
                 FinishLocalExit();

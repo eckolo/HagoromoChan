@@ -7,18 +7,18 @@ internal enum ReactionPose { Still, Idle, Unread, Thinking, Look, Farewell, Wave
 internal readonly record struct ReactionFrame(ReactionPose Pose, long ElapsedMs, int DurationMs,
     double GazeX = 0, double GazeY = 0, bool AllowsGaze = false, double ArtworkProgress = 0,
     bool DirectGaze = false, string Artwork = "frozen", bool LooksAtUnread = false,
-    ReactionVisual Visual = default);
+    int ArtworkCell = -1);
 
-// Values are offsets from a neutral visual, normalized to the sprite's size;
-// they never move the window or change its interaction geometry.
-internal readonly record struct ReactionVisual(double WidthDelta = 0, double HeightDelta = 0,
-    double Degrees = 0, double OffsetX = 0, double OffsetY = 0, double GazeY = 0, double GazeX = 0)
+// Local actions select complete individually drawn cells, never transforms of
+// the standing artwork. Durations also drive the shared playback boundaries.
+internal static class LocalMotionCells
 {
-    public ReactionVisual At(double weight, double facing) => new(
-        WidthDelta * weight, HeightDelta * weight, Degrees * weight * facing,
-        OffsetX * weight * facing, OffsetY * weight, GazeY * weight, GazeX * weight * facing);
+    public const int Width = 288, Height = 368, Count = 3, FootX = 144, FootY = 360;
+    public const string Startup = "startup-bow", MenuLeft = "menu-peek-left", MenuRight = "menu-peek-right",
+        Open = "conversation-open", Close = "conversation-close";
+    public static IReadOnlyList<string> Keys { get; } = Array.AsReadOnly(new[] { Startup, MenuLeft, MenuRight, Open, Close });
+    public static bool Contains(string key) => Keys.Contains(key, StringComparer.Ordinal);
 }
-
 
 // ReadMessagesAsync passes the sequence-ordered desktop history after its last page succeeds.
 // History may already contain rows from an earlier, incomplete read or a POST beyond the cursor.
@@ -81,7 +81,7 @@ internal sealed class ReactionInbox
 // the monotonic timeout or the scheduler's designated rest boundaries.
 internal sealed class ReactionTimeline
 {
-    internal readonly record struct Part(int Ms, bool CanYield, double From, double To);
+    internal readonly record struct Part(int Ms, bool CanYield, double From, double To, int Cell = -1);
     private readonly bool repeat;
     private readonly Part[] parts;
     public int Duration { get; }
@@ -118,6 +118,8 @@ internal sealed class ReactionTimeline
     }
 
     public long PhaseTime(long elapsed) => repeat ? elapsed % Duration : Math.Min(elapsed, Duration);
+
+    public int Cell(long elapsed) => !repeat && elapsed >= Duration ? -1 : Locate(elapsed).Part.Cell;
 
     public double Progress(long elapsed)
     {
@@ -165,9 +167,9 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     private sealed record MotionDefinition(ReactionPose Pose, string Artwork, ReactionTimeline Timeline,
         ReactionTimeline? CustomTimeline = null, Aim Aim = Aim.None, bool? Visible = null,
         bool Coalesce = false, string? DirectArtwork = null, double? UnreadLookFrom = null,
-        ReactionVisual Visual = default, bool WhileMenuOpen = false, bool MirrorTowardMenu = false);
+        bool WhileMenuOpen = false, string? LeftArtwork = null);
     private readonly record struct Queued(MotionDefinition Definition, long At);
-    private readonly record struct Playing(MotionDefinition Definition, ReactionTimeline Timeline, long Started, double Facing, long? EligibleAfter = null)
+    private readonly record struct Playing(MotionDefinition Definition, ReactionTimeline Timeline, long Started, string Artwork, long? EligibleAfter = null)
     {
         public ReactionPose Pose => Definition.Pose;
         public long Elapsed(long now) => Math.Max(0, now - Started);
@@ -180,8 +182,8 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     }
 
     private static ReactionTimeline Clip(int ms) => new(false, new ReactionTimeline.Part(ms, false, 0, 1));
-    private static ReactionTimeline Gesture(int appear, int hold, int release) =>
-        new(false, new(appear, false, 0, 1), new(hold, false, 1, 1), new(release, false, 1, 0));
+    private static ReactionTimeline DrawnMotion(int entry, int apex, int recovery) =>
+        new(false, new(entry, false, 0, 0, 0), new(apex, false, 0, 0, 1), new(recovery, false, 0, 0, 2));
 
     // Custom packs lack neutral internal frames; declare their safe phases with the same motion.
     private static readonly IReadOnlyDictionary<ReactionPose, MotionDefinition> Motions =
@@ -208,20 +210,17 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             new(ReactionPose.Failed, "failed", Clip(800)),
             new(ReactionPose.Jump, "jumping", Clip(650), Coalesce: true),
             new(ReactionPose.Shutdown, "farewell", Clip(700)),
-            new(ReactionPose.StartupBow, "look", Gesture(260, 150, 300),
-                Visual: new(WidthDelta: -.02, HeightDelta: -.15, GazeY: .85)),
-            new(ReactionPose.MenuPeek, "look", Gesture(130, 130, 180),
-                Visual: new(WidthDelta: -.09, HeightDelta: -.055, Degrees: 4, OffsetX: .035, GazeY: .3, GazeX: 1),
-                Coalesce: true, WhileMenuOpen: true, MirrorTowardMenu: true),
-            new(ReactionPose.ConversationOpen, "frozen", Gesture(180, 180, 220), Visible: true,
-                Visual: new(WidthDelta: -.11, HeightDelta: -.055, Degrees: -7)),
-            new(ReactionPose.ConversationClose, "look", Gesture(140, 65, 190), Visible: false,
-                Visual: new(HeightDelta: -.065, GazeY: .45))
+            new(ReactionPose.StartupBow, LocalMotionCells.Startup, DrawnMotion(260, 150, 300)),
+            new(ReactionPose.MenuPeek, LocalMotionCells.MenuRight, DrawnMotion(130, 130, 180),
+                Coalesce: true, WhileMenuOpen: true, LeftArtwork: LocalMotionCells.MenuLeft),
+            new(ReactionPose.ConversationOpen, LocalMotionCells.Open, DrawnMotion(180, 180, 220), Visible: true),
+            // The authored 65ms apex could be lost to a 100ms render gap.
+            new(ReactionPose.ConversationClose, LocalMotionCells.Close, DrawnMotion(140, 120, 190), Visible: false)
         }.ToDictionary(motion => motion.Pose);
 
     private Playing Start(MotionDefinition motion, long now) =>
         new(motion, customArtwork ? motion.CustomTimeline ?? motion.Timeline : motion.Timeline, now,
-            motion.MirrorTowardMenu ? _menuSide : 1);
+            _menuSide < 0 ? motion.LeftArtwork ?? motion.Artwork : motion.Artwork);
 
     private Playing Start(ReactionPose pose, long now) => Start(Motions[pose], now);
 
@@ -463,11 +462,10 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         };
         var progress = span.Progress(elapsed);
         var direct = aim == Aim.Cursor && _lastLookDirect;
-        var visual = definition.Visual.At(progress, play.Facing);
-        return new(play.Pose, phase, span.Duration, gaze.Item1 + visual.GazeX, gaze.Item2 + visual.GazeY,
+        return new(play.Pose, phase, span.Duration, gaze.Item1, gaze.Item2,
             background && !_menuOpen, progress, direct,
-            direct ? definition.DirectArtwork ?? definition.Artwork : definition.Artwork,
-            definition.UnreadLookFrom is double from && progress >= from && progress < 1, visual);
+            direct ? definition.DirectArtwork ?? play.Artwork : play.Artwork,
+            definition.UnreadLookFrom is double from && progress >= from && progress < 1, span.Cell(elapsed));
     }
 
     private (double, double) CursorDirection(long elapsed)

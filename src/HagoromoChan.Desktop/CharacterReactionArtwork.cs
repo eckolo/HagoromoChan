@@ -54,14 +54,17 @@ internal sealed class CharacterReactionArtwork
 
     // progress covers a complete action (or one cycle of an idle/wait loop).
     // Gaze uses screen coordinates, so (0, -1) looks straight up.
-    public ImageSource Frame(string action, double progress, double gazeX = 0, double gazeY = -1)
+    public ImageSource Frame(string action, double progress, double gazeX = 0, double gazeY = -1, int cell = -1)
     {
         progress = double.IsFinite(progress) ? Math.Clamp(progress, 0, 1) : 0;
         gazeX = double.IsFinite(gazeX) ? Math.Clamp(gazeX, -1, 1) : 0;
         gazeY = double.IsFinite(gazeY) ? Math.Clamp(gazeY, -1, 1) : -1;
-        if (_pack is null) return _bundled?.Frame(action, progress, gazeX, gazeY) ?? _original;
+        var local = LocalMotionCells.Contains(action);
+        if (_pack is null)
+            return (local ? _bundled?.LocalFrame(action, cell) :
+                _bundled?.Frame(action, progress, gazeX, gazeY)) ?? _original;
 
-        var bitmap = _pack.Select(action, progress, gazeX, gazeY);
+        var bitmap = local ? _pack.SelectLocalCell(action, cell) : _pack.Select(action, progress, gazeX, gazeY);
         if (_packImages.TryGetValue(bitmap, out var result)) return result;
         double width = _original.PixelWidth, height = _original.PixelHeight;
         var size = Math.Min(1 / _displayScale, Math.Min(width / bitmap.PixelWidth, height / bitmap.PixelHeight));
