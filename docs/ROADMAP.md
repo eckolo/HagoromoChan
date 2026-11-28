@@ -49,7 +49,7 @@
 | MGMT-38 | イラストの透過修正を登録 | 管理 | MGMT-36 | `milestone/MGMT-38-register-hair-gap-alpha` | [MGMT-38](milestones/MGMT-38.md) |
 | MGMT-39 | キャラクター動作の拡張方針を恒久化 | 管理 | M21、MGMT-30 | `milestone/MGMT-39-action-extensibility-rule` | [MGMT-39](milestones/MGMT-39.md) |
 | MGMT-40 | キャラクターアクションの追加計画と運用を登録 | 管理 | MGMT-39、M33 | `milestone/MGMT-40-register-character-action-followups` | [MGMT-40](milestones/MGMT-40.md) |
-| M41 | アプリ起動とキャラクター操作時のアクション | 優先度は着手時に確認 | M03・M08・M09・M21（完了）、M47と操作境界を確認 | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
+| M41 | アプリ起動とキャラクター操作時のアクション | 優先度は着手時に確認 | M03・M08・M09・M21（完了）、M53共通再生（実装・統合）、M47と操作境界を確認 | `milestone/M41-startup-reaction` | [M41](milestones/M41.md) |
 | MGMT-42 | 履歴発言の折りたたみを登録 | 管理 | MGMT-40 | `milestone/MGMT-42-register-history-collapse` | [MGMT-42](milestones/MGMT-42.md) |
 | M43 | 履歴の発言ごとの折りたたみ表示 | 優先度は着手時に確認 | M03・M22、M35と整合 | `milestone/M43-history-message-collapse` | [M43](milestones/M43.md) |
 | MGMT-44 | 共通テスト基盤の計画を登録 | 管理 | MGMT-42 | `milestone/MGMT-44-register-shared-test-runner` | [MGMT-44](milestones/MGMT-44.md) |
@@ -62,6 +62,7 @@
 | MGMT-51 | main統合時の未完了一覧の報告を定例化 | 管理 | MGMT-50、開発運用手順 | `milestone/MGMT-51-record-completion-backlog` | [MGMT-51](milestones/MGMT-51.md) |
 | MGMT-52 | 手振りの途切れをM53として登録 | 管理 | MGMT-51、M21 | `milestone/MGMT-52-register-finite-motion-continuity` | [MGMT-52](milestones/MGMT-52.md) |
 | M53 | 有限モーションが短い押下で途切れる不具合を修正 | 優先度は着手時に確認 | M21（完了）、M41と共通再生の境界を確認 | `milestone/M53-finite-motion-continuity` | [M53](milestones/M53.md) |
+| MGMT-54 | 共通制御とデータ定義の開発原則を明記 | 管理 | M21・M41・M53 | `milestone/MGMT-54-record-data-driven-design` | [MGMT-54](milestones/MGMT-54.md) |
 
 ## 着手順と依存
 
