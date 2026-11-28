@@ -330,13 +330,13 @@ public partial class MainWindow : Window
         menu.Opened += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
             if (_contextMenu != menu || !menu.IsOpen || _closing || _exitRequested) return;
-            var side = 1d;
-            if (PresentationSource.FromVisual(menu) is not null && _lastBounds is { } mascot)
+            var menuOffsetX = 0d;
+            if (menu.ActualWidth > 0 && PresentationSource.FromVisual(menu) is not null && _lastBounds is { } mascot)
             {
                 var center = menu.PointToScreen(new Point(menu.ActualWidth / 2, 0));
-                side = center.X < mascot.X + mascot.Width / 2.0 ? -1d : 1d;
+                menuOffsetX = center.X - (mascot.X + mascot.Width / 2.0);
             }
-            _reactions.ObserveMenu(true, side, Environment.TickCount64);
+            _reactions.ObserveMenu(true, menuOffsetX, Environment.TickCount64);
             RefreshReactionSuspension();
         }));
         menu.Closed += (_, _) =>

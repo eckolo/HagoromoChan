@@ -202,11 +202,14 @@ internal static class CharacterReactionTests
         startup.ObserveStartup(initialized: true, firstFrameRendered: false, 0);
         Check(startup.Sample(1).Pose == ReactionPose.Idle, "a loaded but not yet painted mascot never bows");
         startup.ObserveStartup(initialized: true, firstFrameRendered: true, 2);
-        var bow = startup.Sample(295);
+        Check(startup.Sample(521) is { ArtworkCell: 0, DurationMs: 1420 }, "the bow entry lasts 520 ms");
+        var bow = startup.Sample(522);
         Check(bow is { Pose: ReactionPose.StartupBow, Artwork: LocalMotionCells.Startup, ArtworkCell: 1 },
             "startup bows with a body change rather than gaze alone");
-        startup.ObserveStartup(initialized: true, firstFrameRendered: true, 715);
-        Check(startup.Sample(715).Pose == ReactionPose.Idle && !startup.WaitingForReply,
+        Check(startup.Sample(822).ArtworkCell == 2 && startup.Sample(1421).ArtworkCell == 2,
+            "the bow apex lasts 300 ms and recovery lasts 600 ms");
+        startup.ObserveStartup(initialized: true, firstFrameRendered: true, 1422);
+        Check(startup.Sample(1422).Pose == ReactionPose.Idle && !startup.WaitingForReply,
             "repeated first-frame callbacks do not bow or mutate the relay");
         var off = new CharacterReactionState();
         off.SetEnabled(false, 0);
@@ -215,12 +218,46 @@ internal static class CharacterReactionTests
         off.ObserveStartup(true, true, 3);
         Check(off.Sample(3).Pose == ReactionPose.Idle, "motion-off suppresses startup without delayed replay");
 
+        var longBow = new CharacterReactionState();
+        longBow.ObserveStartup(true, true, 0);
+        longBow.ObserveMenu(true, 20, 10);
+        Check(longBow.Sample(1419).Pose == ReactionPose.StartupBow &&
+              longBow.Sample(1420) is { Pose: ReactionPose.MenuPeek, Artwork: LocalMotionCells.MenuLeft },
+            "the immediate menu's peek survives the long bow and starts at its boundary");
+        var closedDuringBow = new CharacterReactionState();
+        closedDuringBow.ObserveStartup(true, true, 0);
+        closedDuringBow.ObserveMenu(true, -20, 10);
+        closedDuringBow.ObserveMenu(false, 0, 100);
+        Check(closedDuringBow.Sample(1420).Pose == ReactionPose.Idle, "closing during the bow discards a waiting peek");
+        var closingBow = new CharacterReactionState();
+        closingBow.ObserveStartup(true, true, 0);
+        closingBow.BeginShutdown(0, animate: true);
+        Check(closingBow.Sample(709).Pose == ReactionPose.StartupBow &&
+              closingBow.Sample(710).Pose == ReactionPose.Shutdown,
+            "shutdown waits no longer for the bow than before");
+        closingBow.Sample(1410);
+        Check(closingBow.ShutdownReady, "the pre-extension shutdown deadline still holds");
+        off.SetEnabled(false, 10);
+        off.ObserveMenu(true, 1, 11);
+        Check(off.Sample(11).Pose == ReactionPose.Still, "motion-off suppresses a menu peek");
+        off.SetEnabled(true, 12);
+        Check(off.Sample(12).Pose == ReactionPose.Still, "enabling motion does not replay the open menu");
+
+        foreach (var (offset, key) in new[] { (-20d, LocalMotionCells.MenuRight), (-.25, LocalMotionCells.MenuRight),
+                                            (0d, LocalMotionCells.MenuLeft), (.25, LocalMotionCells.MenuLeft),
+                                            (20d, LocalMotionCells.MenuLeft) })
+        {
+            var placedMenu = new CharacterReactionState();
+            placedMenu.ObserveMenu(true, offset, 0);
+            Check(placedMenu.Sample(0).Artwork == key, "peek uses the side opposite actual menu placement");
+        }
+
         var menu = new CharacterReactionState();
         menu.ObserveMenu(true, -1, 10);
         menu.Receive([Row(1, "new")], 20);
         var peek = menu.Sample(200);
-        Check(peek is { Pose: ReactionPose.MenuPeek, Artwork: LocalMotionCells.MenuLeft, ArtworkCell: 1 },
-            "one short reaction visibly leans toward the open menu");
+        Check(peek is { Pose: ReactionPose.MenuPeek, Artwork: LocalMotionCells.MenuRight, ArtworkCell: 1 },
+            "one short reaction visibly leans away from the open menu");
         Check(menu.Sample(451).Pose == ReactionPose.Still && menu.Sample(3100).Pose == ReactionPose.Still,
             "a long-open menu does not replay or run normal background actions");
         menu.ObserveMenu(false, 0, 3101);
@@ -229,8 +266,8 @@ internal static class CharacterReactionTests
         reopen.ObserveMenu(true, -1, 0);
         reopen.ObserveMenu(false, 0, 150);
         reopen.ObserveMenu(true, 1, 160);
-        Check(reopen.Sample(200).Artwork == LocalMotionCells.MenuLeft, "a new target cannot flip a protected visual");
-        Check(reopen.Sample(440).Pose == ReactionPose.MenuPeek && reopen.Sample(610).Artwork == LocalMotionCells.MenuRight,
+        Check(reopen.Sample(200).Artwork == LocalMotionCells.MenuRight, "a new target cannot flip a protected visual");
+        Check(reopen.Sample(440).Pose == ReactionPose.MenuPeek && reopen.Sample(610).Artwork == LocalMotionCells.MenuLeft,
             "the next peek uses the next menu side only after the first ends");
         var quickMenu = new CharacterReactionState();
         quickMenu.Fail(0);
@@ -262,18 +299,18 @@ internal static class CharacterReactionTests
         var definitions = new (string Key, Action<CharacterReactionState> Start)[]
         {
             (LocalMotionCells.Startup, x => x.ObserveStartup(true, true, 0)),
-            (LocalMotionCells.MenuLeft, x => x.ObserveMenu(true, -1, 0)),
-            (LocalMotionCells.MenuRight, x => x.ObserveMenu(true, 1, 0)),
+            (LocalMotionCells.MenuRight, x => x.ObserveMenu(true, -1, 0)),
+            (LocalMotionCells.MenuLeft, x => x.ObserveMenu(true, 1, 0)),
             (LocalMotionCells.Open, x => x.ConversationChanged(false, true, 0, mascotClick: true)),
             (LocalMotionCells.Close, x => x.ConversationChanged(true, false, 0, mascotClick: true))
         };
         foreach (var (key, start) in definitions)
-        foreach (var skippedTick in Enumerable.Range(-1, 17))
+        foreach (var skippedTick in Enumerable.Range(-1, 31))
         {
             var motion = new CharacterReactionState();
             start(motion);
             var frames = new List<int>();
-            for (var tick = 0; tick <= 800; tick += 50)
+            for (var tick = 0; tick <= 1450; tick += 50)
             {
                 if (tick / 50 == skippedTick) continue; // one 100 ms render gap
                 var frame = motion.Sample(tick);

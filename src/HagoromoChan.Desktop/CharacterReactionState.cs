@@ -167,7 +167,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     private sealed record MotionDefinition(ReactionPose Pose, string Artwork, ReactionTimeline Timeline,
         ReactionTimeline? CustomTimeline = null, Aim Aim = Aim.None, bool? Visible = null,
         bool Coalesce = false, string? DirectArtwork = null, double? UnreadLookFrom = null,
-        bool WhileMenuOpen = false, string? LeftArtwork = null);
+        bool WhileMenuOpen = false, string? LeftArtwork = null, int? ShutdownPlaybackLimitMs = null);
     private readonly record struct Queued(MotionDefinition Definition, long At);
     private readonly record struct Playing(MotionDefinition Definition, ReactionTimeline Timeline, long Started, string Artwork, long? EligibleAfter = null)
     {
@@ -210,7 +210,8 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             new(ReactionPose.Failed, "failed", Clip(800)),
             new(ReactionPose.Jump, "jumping", Clip(650), Coalesce: true),
             new(ReactionPose.Shutdown, "farewell", Clip(700)),
-            new(ReactionPose.StartupBow, LocalMotionCells.Startup, DrawnMotion(260, 150, 300)),
+            new(ReactionPose.StartupBow, LocalMotionCells.Startup, DrawnMotion(520, 300, 600),
+                ShutdownPlaybackLimitMs: 710),
             new(ReactionPose.MenuPeek, LocalMotionCells.MenuRight, DrawnMotion(130, 130, 180),
                 Coalesce: true, WhileMenuOpen: true, LeftArtwork: LocalMotionCells.MenuLeft),
             new(ReactionPose.ConversationOpen, LocalMotionCells.Open, DrawnMotion(180, 180, 220), Visible: true),
@@ -220,7 +221,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
 
     private Playing Start(MotionDefinition motion, long now) =>
         new(motion, customArtwork ? motion.CustomTimeline ?? motion.Timeline : motion.Timeline, now,
-            _menuSide < 0 ? motion.LeftArtwork ?? motion.Artwork : motion.Artwork);
+            _uncoveredSide < 0 ? motion.LeftArtwork ?? motion.Artwork : motion.Artwork);
 
     private Playing Start(ReactionPose pose, long now) => Start(Motions[pose], now);
 
@@ -233,7 +234,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     private ReactionPose? _lastGreeting;
     private long _lastGreetingAt;
     private bool _unread, _visible, _startupObserved, _menuOpen;
-    private double _menuSide = 1;
+    private int _uncoveredSide = -1;
     private long? _windowMoved;
     private (double X, double Y) _windowTarget;
     private (double X, double Y)? _cursor;
@@ -270,13 +271,14 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         Request(ReactionPose.StartupBow, nowMs);
     }
 
-    public void ObserveMenu(bool open, double side, long nowMs)
+    public void ObserveMenu(bool open, double menuOffsetX, long nowMs)
     {
         if (_stopped || IsClosing || _menuOpen == open) return;
         _menuOpen = open;
         if (open)
         {
-            _menuSide = side < 0 ? -1 : 1;
+            // Zero (centered or unavailable) chooses left consistently.
+            _uncoveredSide = menuOffsetX < 0 ? 1 : -1;
             Request(ReactionPose.MenuPeek, nowMs);
         }
         else Advance(nowMs);
@@ -579,7 +581,8 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             return;
         }
         if (nowMs - requested < ClosingWaitMs &&
-            ((_finite is { } current && current.Elapsed(nowMs) < current.Timeline.Duration) ||
+            ((_finite is { } current && current.Elapsed(nowMs) <
+              Math.Min(current.Timeline.Duration, current.Definition.ShutdownPlaybackLimitMs ?? int.MaxValue)) ||
              !CanLeaveBackground(requested, nowMs)))
             return;
 
