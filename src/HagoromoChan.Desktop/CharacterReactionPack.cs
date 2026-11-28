@@ -145,9 +145,13 @@ internal sealed class CharacterReactionPack
 
     public bool HasAction(string action) => _actions.ContainsKey(action);
 
-    public BitmapSource SelectLocalCell(string key, int cell) =>
-        _actions.TryGetValue(key, out var frames) && cell >= 0 && cell < frames.Length
+    public BitmapSource SelectLocalCell(string key, int cell)
+    {
+        if (!_actions.TryGetValue(key, out var frames) && LocalMotionCells.LegacyPackKeys.TryGetValue(key, out var legacy))
+            _actions.TryGetValue(legacy, out frames);
+        return frames is not null && cell >= 0 && cell < frames.Length
             ? frames[cell].Bitmap : _actions["idle"][0].Bitmap;
+    }
 
     public BitmapSource Select(string action, double progress, double gazeX, double gazeY)
     {

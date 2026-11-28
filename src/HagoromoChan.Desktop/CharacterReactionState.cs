@@ -14,9 +14,15 @@ internal readonly record struct ReactionFrame(ReactionPose Pose, long ElapsedMs,
 internal static class LocalMotionCells
 {
     public const int Width = 288, Height = 368, Count = 3, FootX = 144, FootY = 360;
-    public const string Startup = "startup-bow", MenuLeft = "menu-peek-left", MenuRight = "menu-peek-right",
-        Open = "conversation-open", Close = "conversation-close";
-    public static IReadOnlyList<string> Keys { get; } = Array.AsReadOnly(new[] { Startup, MenuLeft, MenuRight, Open, Close });
+    public const string Startup = "startup-bow", PeekLeft = "peek-left", PeekRight = "peek-right",
+        TiltLeft = "head-tilt-left", TiltRight = "head-tilt-right", Close = "conversation-close";
+    public static IReadOnlyList<string> Keys { get; } = Array.AsReadOnly(new[] { Startup, PeekLeft, PeekRight, TiltLeft, TiltRight, Close });
+    // Existing custom packs can continue providing cells under the old keys.
+    public static IReadOnlyDictionary<string, string> LegacyPackKeys { get; } =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [PeekLeft] = "menu-peek-left", [PeekRight] = "menu-peek-right", [TiltLeft] = "conversation-open"
+        };
     public static bool Contains(string key) => Keys.Contains(key, StringComparer.Ordinal);
 }
 
@@ -168,7 +174,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         ReactionTimeline? CustomTimeline = null, Aim Aim = Aim.None, bool? Visible = null,
         bool Coalesce = false, string? DirectArtwork = null, double? UnreadLookFrom = null,
         bool WhileMenuOpen = false, string? LeftArtwork = null, int? ShutdownPlaybackLimitMs = null);
-    private readonly record struct Queued(MotionDefinition Definition, long At);
+    private readonly record struct Queued(MotionDefinition Definition, long At, bool FaceLeft);
     private readonly record struct Playing(MotionDefinition Definition, ReactionTimeline Timeline, long Started, string Artwork, long? EligibleAfter = null)
     {
         public ReactionPose Pose => Definition.Pose;
@@ -212,16 +218,16 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             new(ReactionPose.Shutdown, "farewell", Clip(700)),
             new(ReactionPose.StartupBow, LocalMotionCells.Startup, DrawnMotion(520, 300, 600),
                 ShutdownPlaybackLimitMs: 710),
-            new(ReactionPose.MenuPeek, LocalMotionCells.MenuRight, DrawnMotion(130, 130, 180),
-                Coalesce: true, WhileMenuOpen: true, LeftArtwork: LocalMotionCells.MenuLeft),
-            new(ReactionPose.ConversationOpen, LocalMotionCells.Open, DrawnMotion(180, 180, 220), Visible: true),
+            new(ReactionPose.MenuPeek, LocalMotionCells.TiltRight, DrawnMotion(180, 180, 220),
+                Coalesce: true, WhileMenuOpen: true, LeftArtwork: LocalMotionCells.TiltLeft),
+            new(ReactionPose.ConversationOpen, LocalMotionCells.PeekRight, DrawnMotion(130, 130, 180), Visible: true, LeftArtwork: LocalMotionCells.PeekLeft),
             // The authored 65ms apex could be lost to a 100ms render gap.
             new(ReactionPose.ConversationClose, LocalMotionCells.Close, DrawnMotion(140, 120, 190), Visible: false)
         }.ToDictionary(motion => motion.Pose);
 
-    private Playing Start(MotionDefinition motion, long now) =>
+    private Playing Start(MotionDefinition motion, long now, bool faceLeft = false) =>
         new(motion, customArtwork ? motion.CustomTimeline ?? motion.Timeline : motion.Timeline, now,
-            _uncoveredSide < 0 ? motion.LeftArtwork ?? motion.Artwork : motion.Artwork);
+            faceLeft ? motion.LeftArtwork ?? motion.Artwork : motion.Artwork);
 
     private Playing Start(ReactionPose pose, long now) => Start(Motions[pose], now);
 
@@ -234,7 +240,6 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     private ReactionPose? _lastGreeting;
     private long _lastGreetingAt;
     private bool _unread, _visible, _startupObserved, _menuOpen;
-    private int _uncoveredSide = -1;
     private long? _windowMoved;
     private (double X, double Y) _windowTarget;
     private (double X, double Y)? _cursor;
@@ -278,14 +283,13 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         if (open)
         {
             // Zero (centered or unavailable) chooses left consistently.
-            _uncoveredSide = menuOffsetX < 0 ? 1 : -1;
-            Request(ReactionPose.MenuPeek, nowMs);
+            Request(ReactionPose.MenuPeek, nowMs, faceLeft: !(menuOffsetX < 0));
         }
         else Advance(nowMs);
     }
 
     public void ConversationChanged(bool wasVisible, bool visible, long nowMs,
-        bool waveOnOpen = true, bool mascotClick = false)
+        bool waveOnOpen = true, bool mascotClick = false, double conversationOffsetX = 0)
     {
         if (_stopped || wasVisible == visible) return;
         _visible = visible;
@@ -309,7 +313,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         }
         _lastGreeting = pose;
         _lastGreetingAt = nowMs;
-        Request(pose, nowMs);
+        Request(pose, nowMs, faceLeft: conversationOffsetX < 0);
     }
 
     public void SendAccepted(string requestId, long nowMs)
@@ -508,7 +512,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         return _unread ? ReactionPose.Unread : ReactionPose.Idle;
     }
 
-    private void Request(ReactionPose pose, long nowMs)
+    private void Request(ReactionPose pose, long nowMs, bool faceLeft = false)
     {
         if (!_enabled || _stopped || IsClosing) return;
         Prune(nowMs);
@@ -520,7 +524,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             if (greeting < 0) return;
             _pending.RemoveAt(greeting);
         }
-        _pending.Add(new Queued(spec, nowMs));
+        _pending.Add(new Queued(spec, nowMs, faceLeft));
         Advance(nowMs);
     }
 
@@ -555,7 +559,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             var leading = _pending[eligible];
             if (!CanLeaveBackground(leading.At, nowMs)) return;
             _pending.RemoveAt(eligible);
-            _finite = Start(leading.Definition, nowMs);
+            _finite = Start(leading.Definition, nowMs, leading.FaceLeft);
             _background = null;
         }
         else if (_background is null ||

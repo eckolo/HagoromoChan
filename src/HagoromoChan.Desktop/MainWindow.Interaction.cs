@@ -194,7 +194,17 @@ public partial class MainWindow : Window
         }
 
         _farewellAfterMenu = false;
-        _reactions.ConversationChanged(wasVisible, visible, Environment.TickCount64, waveOnOpen, mascotClick);
+        var conversationOffsetX = 0d; // Centered or unavailable: use the default rightward peek.
+        if (visible && mascotClick)
+        {
+            // Input and history share one HWND; Arrange has already placed it.
+            var target = NativeDesktop.Bounds(_panels.Conversation);
+            var mascot = NativeDesktop.Bounds(this);
+            if (target.Width > 0 && mascot.Width > 0)
+                conversationOffsetX = (target.X + target.Width / 2.0) - (mascot.X + mascot.Width / 2.0);
+        }
+        _reactions.ConversationChanged(wasVisible, visible, Environment.TickCount64, waveOnOpen, mascotClick,
+            conversationOffsetX);
     }
 
     private void DismissSurfaces() => DismissSurfaces(mascotClick: false);
