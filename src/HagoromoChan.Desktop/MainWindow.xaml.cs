@@ -128,6 +128,11 @@ public partial class MainWindow : Window
         TextCompositionManager.AddPreviewTextInputUpdateHandler(MessageInput, (_, _) => BeginComposition());
         TextCompositionManager.AddPreviewTextInputHandler(MessageInput, (_, _) => EndComposition());
         Loaded += MainWindow_Loaded;
+        ContentRendered += (_, _) =>
+        {
+            _mascotFirstFrame = true;
+            ObserveInitialMascotFrame();
+        };
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(CheckPlacement));
     }
 
@@ -140,6 +145,7 @@ public partial class MainWindow : Window
             RestorePosition();
             _initialized = true;
             StartReactions();
+            ObserveInitialMascotFrame();
             _placementTimer.Start();
             await RestorePendingAsync();
             RefreshStatus();

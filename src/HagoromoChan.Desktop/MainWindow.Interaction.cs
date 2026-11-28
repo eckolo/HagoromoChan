@@ -99,7 +99,7 @@ public partial class MainWindow : Window
         else if (clicked)
         {
             if (_panels.ConversationOpen)
-                DismissSurfaces();
+                DismissSurfaces(mascotClick: true);
             else
                 OpenBoth();
         }
@@ -179,7 +179,7 @@ public partial class MainWindow : Window
         RefreshStatus();
     }
 
-    private void ChangeConversationByUser(Action change, bool waveOnOpen = false)
+    private void ChangeConversationByUser(Action change, bool waveOnOpen = false, bool mascotClick = false)
     {
         var wasVisible = ConversationVisible;
         change();
@@ -194,10 +194,12 @@ public partial class MainWindow : Window
         }
 
         _farewellAfterMenu = false;
-        _reactions.ConversationChanged(wasVisible, visible, Environment.TickCount64, waveOnOpen);
+        _reactions.ConversationChanged(wasVisible, visible, Environment.TickCount64, waveOnOpen, mascotClick);
     }
 
-    private void DismissSurfaces()
+    private void DismissSurfaces() => DismissSurfaces(mascotClick: false);
+
+    private void DismissSurfaces(bool mascotClick)
     {
         if (!_initialized || _closing)
             return;
@@ -205,7 +207,7 @@ public partial class MainWindow : Window
         _expandedStatus = false;
         if (_contextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
-        ChangeConversationByUser(_panels.HideSurfaces);
+        ChangeConversationByUser(_panels.HideSurfaces, mascotClick: mascotClick);
     }
 
     private bool PrepareConversation()
@@ -219,7 +221,7 @@ public partial class MainWindow : Window
     private void OpenBoth()
     {
         if (!PrepareConversation()) return;
-        ChangeConversationByUser(_panels.OpenBoth, waveOnOpen: true);
+        ChangeConversationByUser(_panels.OpenBoth, mascotClick: true);
         RefreshStatus();
     }
 
@@ -325,9 +327,22 @@ public partial class MainWindow : Window
         if (!string.IsNullOrEmpty(_managerPipe))
             menu.Items.Add(MenuCommand("再起動", () => RequestManagedControl(RuntimeCommand.Restart)));
         menu.Items.Add(MenuCommand("終了", RequestExit));
+        menu.Opened += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (_contextMenu != menu || !menu.IsOpen || _closing || _exitRequested) return;
+            var side = 1d;
+            if (PresentationSource.FromVisual(menu) is not null && _lastBounds is { } mascot)
+            {
+                var center = menu.PointToScreen(new Point(menu.ActualWidth / 2, 0));
+                side = center.X < mascot.X + mascot.Width / 2.0 ? -1d : 1d;
+            }
+            _reactions.ObserveMenu(true, side, Environment.TickCount64);
+            RefreshReactionSuspension();
+        }));
         menu.Closed += (_, _) =>
         {
             _contextMenu = null;
+            _reactions.ObserveMenu(false, 0, Environment.TickCount64);
             RefreshReactionSuspension();
             if (_farewellAfterMenu)
             {

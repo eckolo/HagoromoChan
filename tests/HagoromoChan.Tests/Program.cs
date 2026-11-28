@@ -28,6 +28,7 @@ var tests = new (string Id, string Name, Action Run)[]
     ("Core.CharacterReactionTests.Playback", "Character reactions preserve priority, interaction suspension and expiration", CharacterReactionTests.Playback),
     ("Core.CharacterReactionTests.ConversationGestures", "Opening and dismissing preserve finite gestures and drop stale queued visibility", CharacterReactionTests.ConversationGestures),
     ("Core.CharacterReactionTests.CloseDuringMessage", "Short press and menus hold finite playback, drag and motion-off cancel", CharacterReactionTests.CloseDuringMessage),
+    ("Core.CharacterReactionTests.LocalMascotActions", "Local mascot gestures use shared playback without delaying input", CharacterReactionTests.LocalMascotActions),
     ("Core.CharacterReactionTests.Unread", "Unread rest follows reconciled IDs and yields only at valid phases", CharacterReactionTests.Unread),
     ("Core.CharacterReactionTests.Waiting", "Thinking and direct gaze respect boundaries, restart and settle matching replies", CharacterReactionTests.Waiting),
     ("Core.CharacterReactionTests.ActionBoundariesAndShutdown", "Indexed idle expressions and bounded idempotent shutdown", CharacterReactionTests.ActionBoundariesAndShutdown),

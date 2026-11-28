@@ -112,11 +112,32 @@ internal static class CharacterReactionTests
         state.ConversationChanged(false, false, 0);
         Check(state.Sample(20).Pose == ReactionPose.Idle, "a no-op does not greet");
         state.ConversationChanged(false, true, 50);
+        var wave = state.Sample(149);
+        state.Suspend(true, 150);
+        Check(state.Sample(180) is { Pose: ReactionPose.Wave, ElapsedMs: 100 },
+            "press on a playing wave retains its visible frame");
+        state.Suspend(false, 190);
         state.ConversationChanged(true, false, 200);
         Check(state.Sample(205).Pose == ReactionPose.Wave, "closing does not cut an active finite wave");
         state.ConversationChanged(false, true, 300, waveOnOpen: false);
-        Check(state.Sample(649).Pose == ReactionPose.Wave, "opening wave still completes");
-        Check(state.Sample(650).Pose == ReactionPose.Idle, "reopening discards the stale queued closing animation");
+        Check(wave is { Pose: ReactionPose.Wave, Artwork: "waving", ElapsedMs: 99 }, "wave artwork is defined with the timeline");
+        Check(state.Sample(689) is { Pose: ReactionPose.Wave, ElapsedMs: 599 }, "opening wave still completes");
+        Check(state.Sample(690).Pose == ReactionPose.Idle, "reopening discards the stale queued closing animation");
+
+        var again = new CharacterReactionState();
+        again.ConversationChanged(false, true, 0);
+        again.Suspend(true, 110);
+        Check(again.Sample(129) is { Pose: ReactionPose.Wave, ElapsedMs: 110 }, "first press retains the wave frame");
+        again.Suspend(false, 130);
+        again.ConversationChanged(true, false, 130);
+        again.Suspend(true, 150);
+        Check(again.Sample(179) is { Pose: ReactionPose.Wave, ElapsedMs: 130 }, "second press retains the current wave frame");
+        again.Suspend(false, 180);
+        again.ConversationChanged(false, true, 180);
+        Check(again.Sample(181) is { Pose: ReactionPose.Wave, ElapsedMs: 131 }, "opening again does not restart the current wave");
+        Check(again.Sample(649) is { Pose: ReactionPose.Wave, ElapsedMs: 599 } &&
+              again.Sample(650) is { Pose: ReactionPose.Wave, ElapsedMs: 0 },
+            "the second wave starts only after the first ends");
 
         state.SetUnread(true, 1000);
         state.ConversationChanged(true, false, 1050);
@@ -142,8 +163,10 @@ internal static class CharacterReactionTests
             if (expected == ReactionPose.Jump) state.Receive([Row(1, "incoming")], 100);
             else if (expected == ReactionPose.Review) state.SendAccepted("own", 100);
             else state.Fail(100);
+            var before = state.Sample(200);
             state.Suspend(true, 200);
-            Check(state.Sample(250).Pose == ReactionPose.Still, "short press or menu freezes immediately");
+            Check(state.Sample(250) == before && before.Pose == expected,
+                "short hold keeps the active protected frame instead of rendering the idle pose");
             state.Suspend(false, 300);
             state.ConversationChanged(true, false, 300);
             var resumed = state.Sample(325);
@@ -171,6 +194,70 @@ internal static class CharacterReactionTests
         disabled.SetEnabled(false, 20);
         disabled.SetEnabled(true, 30);
         Check(disabled.Sample(31).Pose == ReactionPose.Idle, "motion off discards queue as well as active playback");
+    }
+
+    public static void LocalMascotActions()
+    {
+        var startup = new CharacterReactionState();
+        startup.ObserveStartup(initialized: true, firstFrameRendered: false, 0);
+        Check(startup.Sample(1).Pose == ReactionPose.Idle, "a loaded but not yet painted mascot never bows");
+        startup.ObserveStartup(initialized: true, firstFrameRendered: true, 2);
+        var bow = startup.Sample(295);
+        Check(bow is { Pose: ReactionPose.StartupBow, GazeY: > .8, Visual.HeightDelta: < -.1 },
+            "startup bows with a body change rather than gaze alone");
+        startup.ObserveStartup(initialized: true, firstFrameRendered: true, 715);
+        Check(startup.Sample(715).Pose == ReactionPose.Idle && !startup.WaitingForReply,
+            "repeated first-frame callbacks do not bow or mutate the relay");
+        var off = new CharacterReactionState();
+        off.SetEnabled(false, 0);
+        off.ObserveStartup(true, true, 1);
+        off.SetEnabled(true, 2);
+        off.ObserveStartup(true, true, 3);
+        Check(off.Sample(3).Pose == ReactionPose.Idle, "motion-off suppresses startup without delayed replay");
+
+        var menu = new CharacterReactionState();
+        menu.ObserveMenu(true, -1, 10);
+        menu.Receive([Row(1, "new")], 20);
+        var peek = menu.Sample(200);
+        Check(peek is { Pose: ReactionPose.MenuPeek, GazeX: < -.9, Visual.OffsetX: < 0 },
+            "one short reaction visibly leans toward the open menu");
+        Check(menu.Sample(451).Pose == ReactionPose.Still && menu.Sample(3100).Pose == ReactionPose.Still,
+            "a long-open menu does not replay or run normal background actions");
+        menu.ObserveMenu(false, 0, 3101);
+        Check(menu.Sample(3101).Pose == ReactionPose.Idle, "no stale menu or expired arrival");
+        var reopen = new CharacterReactionState();
+        reopen.ObserveMenu(true, -1, 0);
+        reopen.ObserveMenu(false, 0, 150);
+        reopen.ObserveMenu(true, 1, 160);
+        Check(reopen.Sample(200).Visual.OffsetX < 0, "a new target cannot flip a protected visual");
+        Check(reopen.Sample(440).Pose == ReactionPose.MenuPeek && reopen.Sample(610).Visual.OffsetX > 0,
+            "the next peek uses the next menu side only after the first ends");
+        var quickMenu = new CharacterReactionState();
+        quickMenu.Fail(0);
+        quickMenu.ObserveMenu(true, 1, 10);
+        quickMenu.ObserveMenu(false, 0, 40);
+        Check(quickMenu.Sample(799).Pose == ReactionPose.Failed && quickMenu.Sample(800).Pose == ReactionPose.Idle,
+            "a menu that closes before a safe boundary never triggers a late peek");
+
+        var window = new CharacterReactionState();
+        window.ObserveVisibility(true); // automatic display
+        window.ConversationChanged(true, true, 1, mascotClick: true);
+        Check(window.Sample(1).Pose == ReactionPose.Idle, "no open reaction for automatic or unchanged visibility");
+        window.ObserveVisibility(false);
+        window.ConversationChanged(false, true, 10, mascotClick: true);
+        Check(window.Sample(200) is { Pose: ReactionPose.ConversationOpen, Visual.Degrees: < -6 },
+            "explicit mascot open uses a noticeable tilt");
+        window.Suspend(true, 220);
+        var held = window.Sample(240);
+        window.Suspend(false, 260);
+        window.ConversationChanged(true, false, 260, mascotClick: true);
+        Check(held.Pose == ReactionPose.ConversationOpen && window.Sample(629).Pose == ReactionPose.ConversationOpen,
+            "closing does not cut off the previous protected expression");
+        Check(window.Sample(630).Pose == ReactionPose.ConversationClose, "close follows the completed open");
+        Check(window.Sample(815) is { Pose: ReactionPose.ConversationClose, Visual.HeightDelta: < -.04 and > -.1 },
+            "close uses a small nod instead of a shutdown farewell");
+        window.BeginShutdown(1100, true);
+        Check(window.Sample(1100).Pose == ReactionPose.Shutdown, "normal shutdown retains its existing dedicated farewell");
     }
 
     public static void Unread()
@@ -204,7 +291,7 @@ internal static class CharacterReactionTests
         var glance = new CharacterReactionState();
         glance.SetUnread(true, 0);
         var moving = glance.Sample(6000);
-        Check(moving.Pose == ReactionPose.Unread && CharacterReactionState.ShowsUnreadGlance(moving.ArtworkProgress),
+        Check(moving.Pose == ReactionPose.Unread && moving.LooksAtUnread,
             "only the final second is the unread glance");
         glance.Fail(6200);
         Check(glance.Sample(6999).Pose == ReactionPose.Unread, "glance does not break early");
@@ -292,6 +379,30 @@ internal static class CharacterReactionTests
         blink.Fail(4670);
         Check(blink.Sample(4799).Pose == ReactionPose.Idle && blink.Sample(4800).Pose == ReactionPose.Failed,
             "idle expression finishes before a new finite unit");
+
+        var finite = new ReactionTimeline(false, new ReactionTimeline.Part(100, false, 0, 1));
+        Check(!finite.CanYieldAt(99) && finite.CanYieldAt(100) && finite.CanYieldBetween(99, 101),
+            "a protected finite clip has an implicit terminal boundary");
+        ReactionTimeline.Part[] mutable = [new(100, true, 0, 1)];
+        var immutable = new ReactionTimeline(true, mutable);
+        mutable[0] = new(1, false, 1, 0);
+        Check(immutable.Duration == 100 && immutable.CanYieldAt(20), "wave phases cannot change after registration");
+        try
+        {
+            _ = new ReactionTimeline(true, new ReactionTimeline.Part(100, false, 0, 1));
+            throw new InvalidOperationException("A repeating motion without a boundary must be rejected.");
+        }
+        catch (ArgumentException) { }
+
+        var paused = new CharacterReactionState();
+        paused.Sample(0);
+        var blinkBefore = paused.Sample(4660);
+        paused.Suspend(true, 4660);
+        paused.Fail(4690);
+        Check(paused.Sample(4710) == blinkBefore, "a protected background phase also retains its exact frame");
+        paused.Suspend(false, 4720);
+        Check(paused.Sample(4859).Pose == ReactionPose.Idle && paused.Sample(4860).Pose == ReactionPose.Failed,
+            "hold time does not count or expose an earlier safe background phase");
 
         var close = new CharacterReactionState();
         close.SendAccepted("closing", 0);

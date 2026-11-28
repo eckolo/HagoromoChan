@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace HagoromoChan.Desktop;
@@ -18,10 +19,32 @@ public partial class MainWindow
     private bool _animationUnavailable;
     private bool _gazeSampling;
     private bool _reactionsClosed;
+    private bool _mascotFirstFrame;
+    private readonly MatrixTransform _mascotMotionTransform = new();
+
+    private void ObserveInitialMascotFrame()
+    {
+        if (!_initialized || !_mascotFirstFrame) return;
+        _reactions.ObserveStartup(_initialized, _mascotFirstFrame, Environment.TickCount64);
+        RenderReactions(this, EventArgs.Empty);
+    }
+
+    private void ApplyMotionVisual(ReactionVisual visual)
+    {
+        var width = MascotImage.ActualWidth;
+        var height = MascotImage.ActualHeight;
+        var matrix = Matrix.Identity;
+        matrix.ScaleAt(1 + visual.WidthDelta, 1 + visual.HeightDelta, width / 2, height);
+        matrix.RotateAt(visual.Degrees, width / 2, height * .6);
+        matrix.Translate(visual.OffsetX * width, visual.OffsetY * height);
+        if (!_mascotMotionTransform.Matrix.Equals(matrix))
+            _mascotMotionTransform.Matrix = matrix;
+    }
 
     private void StartReactions()
     {
         RestingSilhouette.Source = MascotImage.Source;
+        MascotImage.RenderTransform = _mascotMotionTransform;
         _reactionTimer.Tick += RenderReactions;
         SystemParameters.StaticPropertyChanged += ReactionSystemSettingChanged;
         ApplyReactionSettings();
@@ -52,7 +75,7 @@ public partial class MainWindow
     private void RefreshReactionSuspension()
     {
         if (!_initialized || _reactionsClosed || _localExitQueued) return;
-        var suspended = _pointerDown || _contextMenu is { IsOpen: true };
+        var suspended = _pointerDown;
         _reactions.Suspend(suspended, Environment.TickCount64, dragging: _dragging);
         if (!AnimationsEnabled || suspended)
         {
@@ -63,7 +86,10 @@ public partial class MainWindow
             if (AnimationsEnabled)
                 RenderReactions(this, EventArgs.Empty);
             else
+            {
+                ApplyMotionVisual(default);
                 MascotImage.Source = RestingSilhouette.Source;
+            }
             return;
         }
         RenderReactions(this, EventArgs.Empty);
@@ -130,25 +156,13 @@ public partial class MainWindow
             }
 
             var direction = (X: frame.GazeX, Y: frame.GazeY);
-            var action = frame.Pose switch
-            {
-                ReactionPose.Idle => "idle",
-                ReactionPose.Unread => "unread",
-                ReactionPose.Wave => "waving",
-                ReactionPose.Farewell or ReactionPose.Shutdown => "farewell",
-                ReactionPose.Review => "review",
-                ReactionPose.Thinking => "thinking",
-                ReactionPose.Jump => "jumping",
-                ReactionPose.Failed => "failed",
-                ReactionPose.Look => frame.DirectGaze ? "look" : "waiting",
-                _ => "frozen"
-            };
             var progress = frame.ArtworkProgress;
-            if (frame.Pose == ReactionPose.Unread && CharacterReactionState.ShowsUnreadGlance(progress)
+            if (frame.LooksAtUnread
                 && _lastBounds is { } bounds)
                 direction = _panels.UnreadDirection(bounds);
 
-            var image = _reactionArtwork.Frame(action, progress, direction.X, direction.Y);
+            var image = _reactionArtwork.Frame(frame.Artwork, progress, direction.X, direction.Y);
+            ApplyMotionVisual(frame.Visual);
             if (!ReferenceEquals(image, MascotImage.Source)) MascotImage.Source = image;
             var interval = frame.AllowsGaze ? 100 : 50;
             if (_reactionTimer.Interval.TotalMilliseconds != interval)
@@ -163,6 +177,7 @@ public partial class MainWindow
             _reactions.SetEnabled(false, Environment.TickCount64);
             ResetWindowGaze();
             _cursorGaze.Reset();
+            ApplyMotionVisual(default);
             MascotImage.Source = RestingSilhouette.Source;
             if (_localExitQueued)
                 FinishLocalExit();
