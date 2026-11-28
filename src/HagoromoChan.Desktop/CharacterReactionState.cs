@@ -6,7 +6,7 @@ internal enum ReactionPose { Still, Idle, Unread, Thinking, Look, Farewell, Wave
 
 internal readonly record struct ReactionFrame(ReactionPose Pose, long ElapsedMs, int DurationMs,
     double GazeX = 0, double GazeY = 0, bool AllowsGaze = false, double ArtworkProgress = 0,
-    bool DirectGaze = false);
+    bool DirectGaze = false, string Artwork = "frozen", bool LooksAtUnread = false);
 
 // ReadMessagesAsync passes the sequence-ordered desktop history after its last page succeeds.
 // History may already contain rows from an earlier, incomplete read or a POST beyond the cursor.
@@ -67,10 +67,28 @@ internal sealed class ReactionInbox
 // Phase boundaries, not pose-specific interruption branches, govern all
 // playback. Artwork may stretch/compress within each part without changing
 // the monotonic timeout or the scheduler's designated rest boundaries.
-internal sealed class ReactionTimeline(bool repeat, params ReactionTimeline.Part[] parts)
+internal sealed class ReactionTimeline
 {
     internal readonly record struct Part(int Ms, bool CanYield, double From, double To);
-    public int Duration { get; } = parts.Sum(part => part.Ms);
+    private readonly bool repeat;
+    private readonly Part[] parts;
+    public int Duration { get; }
+
+    public ReactionTimeline(bool repeat, params Part[] parts)
+    {
+        if (parts.Length == 0 || parts.Any(part => part.Ms <= 0 ||
+            !double.IsFinite(part.From) || !double.IsFinite(part.To) ||
+            part.From is < 0 or > 1 || part.To is < 0 or > 1))
+            throw new ArgumentException("A motion needs nonempty, positive, normalized phases.", nameof(parts));
+        if (repeat && !parts.Any(part => part.CanYield))
+            throw new ArgumentException("A repeating motion must offer a switch boundary.", nameof(parts));
+        this.repeat = repeat;
+        this.parts = (Part[])parts.Clone();
+        Duration = this.parts.Sum(part => part.Ms);
+    }
+
+    public bool CanYieldAt(long elapsed) =>
+        (!repeat && elapsed >= Duration) || Locate(elapsed).Part.CanYield;
 
     private (Part Part, long Position, long End) Locate(long elapsed)
     {
@@ -102,7 +120,7 @@ internal sealed class ReactionTimeline(bool repeat, params ReactionTimeline.Part
     public bool CanYieldBetween(long from, long to)
     {
         if (to < from) return false;
-        if (!parts.Any(part => part.CanYield)) return false;
+        if (!repeat && to >= Duration) return true;
         if (repeat && to - from >= Duration) return true;
         for (var time = from; time <= to;)
         {
@@ -126,49 +144,61 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     private const int WindowGazeHoldMs = 1600;
     private const int WaitingCycleMs = 4600;
     internal const int UnreadCycleMs = 7000;
+    private const double UnreadGlanceStart = (UnreadCycleMs - 1000d) / UnreadCycleMs;
     private const int ClosingWaitMs = 800;
     internal const int ClosingDeadlineMs = 1600;
 
     private enum Aim { None, Wait, Cursor }
     private enum Suspension { None, Hold, Drag }
-    private sealed record ActionSpec(ReactionTimeline Timeline, Aim Aim = Aim.None,
-        bool? Visible = null, bool Coalesce = false);
-    private readonly record struct Queued(ReactionPose Pose, long At);
-    private readonly record struct Playing(ReactionPose Pose, long Started);
+    private sealed record MotionDefinition(ReactionPose Pose, string Artwork, ReactionTimeline Timeline,
+        ReactionTimeline? CustomTimeline = null, Aim Aim = Aim.None, bool? Visible = null,
+        bool Coalesce = false, string? DirectArtwork = null, double? UnreadLookFrom = null);
+    private readonly record struct Queued(MotionDefinition Definition, long At);
+    private readonly record struct Playing(MotionDefinition Definition, ReactionTimeline Timeline, long Started, long? EligibleAfter = null)
+    {
+        public ReactionPose Pose => Definition.Pose;
+        public long Elapsed(long now) => Math.Max(0, now - Started);
+        public bool InProtectedPhase(long now) => !Timeline.CanYieldAt(Elapsed(now));
+        public bool CanYieldBetween(long from, long now) =>
+            Timeline.CanYieldBetween(Elapsed(Math.Max(from, EligibleAfter ?? Started)), Elapsed(now));
+
+        public Playing ResumeAfterHold(long duration, long now) =>
+            this with { Started = Started + duration, EligibleAfter = now };
+    }
 
     private static ReactionTimeline Clip(int ms) => new(false, new ReactionTimeline.Part(ms, false, 0, 1));
 
-    private static readonly IReadOnlyDictionary<ReactionPose, ActionSpec> Specs =
-        new Dictionary<ReactionPose, ActionSpec>
+    // Custom packs lack neutral internal frames; declare their safe phases with the same motion.
+    private static readonly IReadOnlyDictionary<ReactionPose, MotionDefinition> Motions =
+        new MotionDefinition[]
         {
-            [ReactionPose.Still] = new(new ReactionTimeline(true, new ReactionTimeline.Part(1000, true, 0, 0))),
-            [ReactionPose.Idle] = new(new ReactionTimeline(true,
-                new(4650, true, 0, 4650d / 4800), new(150, false, 4650d / 4800, 1))),
-            [ReactionPose.Thinking] = new(new ReactionTimeline(true,
+            new(ReactionPose.Still, "frozen", new(true, new ReactionTimeline.Part(1000, true, 0, 0))),
+            new(ReactionPose.Idle, "idle", new(true,
+                new(4650, true, 0, 4650d / 4800), new(150, false, 4650d / 4800, 1)),
+                new(true, new(800, true, 0, 0), new(200, false, 0, 1))),
+            new(ReactionPose.Thinking, "thinking", new(true,
                 new(1400, true, 0, 4d / 48), new(700, false, 4d / 48, 44d / 48),
-                new(2500, true, 44d / 48, 1)), Aim.Wait),
-            [ReactionPose.Unread] = new(new ReactionTimeline(true,
-                new(6000, true, 0, 6000d / UnreadCycleMs), new(1000, false, 6000d / UnreadCycleMs, 1))),
-            [ReactionPose.Look] = new(new ReactionTimeline(false,
-                new(GazeIntroMs, false, 0, 1), new(1, true, 1, 1)), Aim.Cursor),
-            [ReactionPose.Wave] = new(Clip(600), Visible: true),
-            [ReactionPose.Farewell] = new(Clip(700), Visible: false),
-            [ReactionPose.Review] = new(Clip(800)),
-            [ReactionPose.Failed] = new(Clip(800)),
-            [ReactionPose.Jump] = new(Clip(650), Coalesce: true),
-            [ReactionPose.Shutdown] = new(Clip(700))
-        };
+                new(2500, true, 44d / 48, 1)),
+                new(true, new(1400, true, 0, 0), new(700, false, 0, 1), new(2500, true, 0, 0)),
+                Aim: Aim.Wait),
+            new(ReactionPose.Unread, "unread", new(true,
+                new(6000, true, 0, 6000d / UnreadCycleMs), new(1000, false, 6000d / UnreadCycleMs, 1)),
+                new(true, new(6000, true, 0, 0), new(1000, false, 0, 1)),
+                UnreadLookFrom: UnreadGlanceStart),
+            new(ReactionPose.Look, "waiting", new(false,
+                new(GazeIntroMs, false, 0, 1), new(1, true, 1, 1)), Aim: Aim.Cursor, DirectArtwork: "look"),
+            new(ReactionPose.Wave, "waving", Clip(600), Visible: true),
+            new(ReactionPose.Farewell, "farewell", Clip(700), Visible: false),
+            new(ReactionPose.Review, "review", Clip(800)),
+            new(ReactionPose.Failed, "failed", Clip(800)),
+            new(ReactionPose.Jump, "jumping", Clip(650), Coalesce: true),
+            new(ReactionPose.Shutdown, "farewell", Clip(700))
+        }.ToDictionary(motion => motion.Pose);
 
-    // A custom pack may not identify neutral internal frames. Use a static
-    // frame while yielding, and protect only short, complete artwork units.
-    private static readonly IReadOnlyDictionary<ReactionPose, ReactionTimeline> Custom =
-        new Dictionary<ReactionPose, ReactionTimeline>
-        {
-            [ReactionPose.Idle] = new(true, new(800, true, 0, 0), new(200, false, 0, 1)),
-            [ReactionPose.Thinking] = new(true, new(1400, true, 0, 0),
-                new(700, false, 0, 1), new(2500, true, 0, 0)),
-            [ReactionPose.Unread] = new(true, new(6000, true, 0, 0), new(1000, false, 0, 1))
-        };
+    private Playing Start(MotionDefinition motion, long now) =>
+        new(motion, customArtwork ? motion.CustomTimeline ?? motion.Timeline : motion.Timeline, now);
+
+    private Playing Start(ReactionPose pose, long now) => Start(Motions[pose], now);
 
     private readonly HashSet<string> _accepted = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _awaitingReplies = new(StringComparer.OrdinalIgnoreCase);
@@ -185,6 +215,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     private (double X, double Y) _lastLookTarget;
     private bool _lastLookDirect;
     private long _suspendedAt;
+    private ReactionFrame? _heldFrame;
     private Suspension _suspension;
     private bool _enabled = true, _stopped;
     private long? _closingAt;
@@ -194,11 +225,9 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     public bool ShutdownReady { get; private set; }
     public bool IsClosing => _closingAt.HasValue;
 
-    internal static bool ShowsUnreadGlance(double progress) =>
-        progress >= (UnreadCycleMs - 1000d) / UnreadCycleMs && progress < 1;
+    internal static bool ShowsUnreadGlance(double progress) => progress >= UnreadGlanceStart && progress < 1;
 
-    private ReactionTimeline Timeline(ReactionPose pose) =>
-        customArtwork && Custom.TryGetValue(pose, out var alternate) ? alternate : Specs[pose].Timeline;
+
 
     public void SetUnread(bool hasUnread, long nowMs)
     {
@@ -267,20 +296,27 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         {
             Advance(nowMs);
             _suspendedAt = nowMs;
+            var active = _finite ?? _background;
+            if (next == Suspension.Hold && active is { } protectedMotion && protectedMotion.InProtectedPhase(nowMs))
+                _heldFrame = Frame(protectedMotion, nowMs, _finite is null);
+            else if (_finite is null)
+                _background = null;
         }
 
         if (next == Suspension.Drag)
         {
-            _finite = null;
+            _finite = _background = null;
+            _heldFrame = null;
             _pending.Clear();
         }
-        else if (next == Suspension.None && _finite is { } held)
+        else if (next == Suspension.None)
         {
             var duration = nowMs - _suspendedAt;
-            _finite = _suspension == Suspension.Hold && duration <= HoldLimitMs
-                ? held with { Started = held.Started + duration } : null;
+            var resume = _suspension == Suspension.Hold && duration <= HoldLimitMs && _heldFrame.HasValue;
+            _finite = resume && _finite is { } finite ? finite.ResumeAfterHold(duration, nowMs) : null;
+            _background = resume && _background is { } background ? background.ResumeAfterHold(duration, nowMs) : null;
+            _heldFrame = null;
         }
-        _background = null;
         _cursor = null;
         _windowMoved = null;
         _suspension = next;
@@ -292,7 +328,8 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         if (IsClosing || _stopped) return;
         _closingAt = nowMs;
         _pending.Clear();
-        if (_suspension != Suspension.None) _finite = null;
+        if (_suspension != Suspension.None) _finite = _background = null;
+        _heldFrame = null;
         _suspension = Suspension.None;
         if (!animate || !_enabled)
         {
@@ -316,6 +353,7 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     {
         _pending.Clear();
         _finite = _background = null;
+        _heldFrame = null;
         _cursor = null;
         _windowMoved = null;
     }
@@ -348,28 +386,34 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     public ReactionFrame Sample(long nowMs)
     {
         Advance(nowMs);
-        if (!_enabled || _stopped || ShutdownReady || _suspension != Suspension.None)
-            return Frame(new Playing(ReactionPose.Still, nowMs), nowMs, false);
+        if (!_enabled || _stopped || ShutdownReady)
+            return Frame(Start(ReactionPose.Still, nowMs), nowMs, false);
+        if (_suspension != Suspension.None)
+            return _heldFrame ?? Frame(Start(ReactionPose.Still, nowMs), nowMs, false);
 
         if (_finite is { } finite)
             return Frame(finite, nowMs, false);
-        return Frame(_background ?? new Playing(ReactionPose.Idle, nowMs), nowMs, true);
+        return Frame(_background ?? Start(ReactionPose.Idle, nowMs), nowMs, true);
     }
 
     private ReactionFrame Frame(Playing play, long now, bool background)
     {
-        var span = Timeline(play.Pose);
-        var elapsed = Math.Max(0, now - play.Started);
+        var span = play.Timeline;
+        var elapsed = play.Elapsed(now);
         var phase = span.PhaseTime(elapsed);
-        var aim = Specs[play.Pose].Aim;
+        var definition = play.Definition;
+        var aim = definition.Aim;
         var gaze = aim switch
         {
             Aim.Cursor => CursorDirection(elapsed),
             Aim.Wait => WaitingDirection(elapsed),
             _ => (0.0, 0.0)
         };
-        return new(play.Pose, phase, span.Duration, gaze.Item1, gaze.Item2, background,
-            span.Progress(elapsed), aim == Aim.Cursor && _lastLookDirect);
+        var progress = span.Progress(elapsed);
+        var direct = aim == Aim.Cursor && _lastLookDirect;
+        return new(play.Pose, phase, span.Duration, gaze.Item1, gaze.Item2, background, progress, direct,
+            direct ? definition.DirectArtwork ?? definition.Artwork : definition.Artwork,
+            definition.UnreadLookFrom is double from && progress >= from && progress < 1);
     }
 
     private (double, double) CursorDirection(long elapsed)
@@ -413,20 +457,20 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
     {
         if (!_enabled || _stopped || IsClosing) return;
         Prune(nowMs);
-        var spec = Specs[pose];
-        if (spec.Coalesce && _pending.Any(item => item.Pose == pose)) return;
+        var spec = Motions[pose];
+        if (spec.Coalesce && _pending.Any(item => item.Definition.Pose == pose)) return;
         if (_pending.Count >= MaxPending)
         {
-            var greeting = _pending.FindIndex(item => Specs[item.Pose].Visible.HasValue);
+            var greeting = _pending.FindIndex(item => item.Definition.Visible.HasValue);
             if (greeting < 0) return;
             _pending.RemoveAt(greeting);
         }
-        _pending.Add(new Queued(pose, nowMs));
+        _pending.Add(new Queued(spec, nowMs));
         Advance(nowMs);
     }
 
     private void Prune(long nowMs) => _pending.RemoveAll(item =>
-        nowMs - item.At >= QueueLifetimeMs || Specs[item.Pose].Visible is bool desired && desired != _visible);
+        nowMs - item.At >= QueueLifetimeMs || item.Definition.Visible is bool desired && desired != _visible);
 
     private void Advance(long nowMs)
     {
@@ -438,7 +482,8 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         }
         Prune(nowMs);
         if (_suspension != Suspension.None) return;
-        if (_finite is { } current && nowMs - current.Started < Timeline(current.Pose).Duration)
+        if (_finite is { } current && current.Elapsed(nowMs) < current.Timeline.Duration &&
+            (_pending.Count == 0 || !current.CanYieldBetween(_pending[0].At, nowMs)))
             return;
         _finite = null;
 
@@ -453,17 +498,16 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
             var leading = _pending[0];
             if (!CanLeaveBackground(leading.At, nowMs)) return;
             _pending.RemoveAt(0);
-            _finite = new Playing(leading.Pose, nowMs);
+            _finite = Start(leading.Definition, nowMs);
             _background = null;
         }
         else if (_background is null ||
             _background.Value.Pose != demand && CanLeaveBackground(_wantedSince, nowMs))
-            _background = new Playing(demand, nowMs);
+            _background = Start(demand, nowMs);
     }
 
     private bool CanLeaveBackground(long wantedAt, long nowMs) =>
-        _background is not { } baseAction || Timeline(baseAction.Pose).CanYieldBetween(
-            Math.Max(0, wantedAt - baseAction.Started), nowMs - baseAction.Started);
+        _background is not { } baseAction || baseAction.CanYieldBetween(wantedAt, nowMs);
 
     private void AdvanceShutdown(long nowMs)
     {
@@ -475,17 +519,17 @@ internal sealed class CharacterReactionState(bool customArtwork = false)
         }
         if (_farewellStarted)
         {
-            if (_finite is not { } farewell || nowMs - farewell.Started >= Timeline(farewell.Pose).Duration)
+            if (_finite is not { } farewell || farewell.Elapsed(nowMs) >= farewell.Timeline.Duration)
                 ShutdownReady = true;
             return;
         }
         if (nowMs - requested < ClosingWaitMs &&
-            ((_finite is { } current && nowMs - current.Started < Timeline(current.Pose).Duration) ||
+            ((_finite is { } current && current.Elapsed(nowMs) < current.Timeline.Duration) ||
              !CanLeaveBackground(requested, nowMs)))
             return;
 
         _background = null;
-        _finite = new Playing(ReactionPose.Shutdown, nowMs);
+        _finite = Start(ReactionPose.Shutdown, nowMs);
         _farewellStarted = true;
     }
 }

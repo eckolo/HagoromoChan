@@ -130,25 +130,12 @@ public partial class MainWindow
             }
 
             var direction = (X: frame.GazeX, Y: frame.GazeY);
-            var action = frame.Pose switch
-            {
-                ReactionPose.Idle => "idle",
-                ReactionPose.Unread => "unread",
-                ReactionPose.Wave => "waving",
-                ReactionPose.Farewell or ReactionPose.Shutdown => "farewell",
-                ReactionPose.Review => "review",
-                ReactionPose.Thinking => "thinking",
-                ReactionPose.Jump => "jumping",
-                ReactionPose.Failed => "failed",
-                ReactionPose.Look => frame.DirectGaze ? "look" : "waiting",
-                _ => "frozen"
-            };
             var progress = frame.ArtworkProgress;
-            if (frame.Pose == ReactionPose.Unread && CharacterReactionState.ShowsUnreadGlance(progress)
+            if (frame.LooksAtUnread
                 && _lastBounds is { } bounds)
                 direction = _panels.UnreadDirection(bounds);
 
-            var image = _reactionArtwork.Frame(action, progress, direction.X, direction.Y);
+            var image = _reactionArtwork.Frame(frame.Artwork, progress, direction.X, direction.Y);
             if (!ReferenceEquals(image, MascotImage.Source)) MascotImage.Source = image;
             var interval = frame.AllowsGaze ? 100 : 50;
             if (_reactionTimer.Interval.TotalMilliseconds != interval)
