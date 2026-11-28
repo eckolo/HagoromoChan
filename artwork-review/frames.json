@@ -220,7 +220,7 @@
       "sprite": "conversation-open/sprite.png",
       "proof": "conversation-open/compare-260.png",
       "playback": "conversation-open/playback-260.png",
-      "source_sha": "7679ab095f419119c8dc0a479c3557154e99bc3d",
+      "source_sha": "433d5a6d9636b05f0c17d322fa5b8660bbb5dad7",
       "sequence": [
         "existing_idle",
         0,
@@ -237,32 +237,64 @@
       "metrics": [
         {
           "alpha128_bounds_xywh": [
-            18,
-            11,
-            226,
-            349
+            20,
+            12,
+            232,
+            348
           ],
-          "last_sole_pixel_y": 359
-        },
-        {
-          "alpha128_bounds_xywh": [
-            18,
-            11,
-            226,
-            349
-          ],
-          "last_sole_pixel_y": 359
+          "last_sole_pixel_y": 359,
+          "changed_rgba_pixels_in_visible_body_mask": 0,
+          "changed_rgba_pixels_y214_and_below": 0
         },
         {
           "alpha128_bounds_xywh": [
             19,
+            14,
+            230,
+            346
+          ],
+          "last_sole_pixel_y": 359,
+          "changed_rgba_pixels_in_visible_body_mask": 0,
+          "changed_rgba_pixels_y214_and_below": 0
+        },
+        {
+          "alpha128_bounds_xywh": [
+            21,
             12,
-            225,
+            231,
             348
           ],
-          "last_sole_pixel_y": 359
+          "last_sole_pixel_y": 359,
+          "changed_rgba_pixels_in_visible_body_mask": 0,
+          "changed_rgba_pixels_y214_and_below": 0
         }
-      ]
+      ],
+      "reference_neutral_for_preview": {
+        "path": "conversation-open/reference-neutral.png",
+        "git_blob_sha": "802220f89a40e9ce58d775e6e8281545393de11e",
+        "source": "src/HagoromoChan.Desktop/Assets/MascotReactions.png",
+        "source_git_blob_sha": "2ae4cc4601a8d842945ceef4e641aeb8d7217154",
+        "crop_xywh": [
+          0,
+          0,
+          288,
+          368
+        ]
+      },
+      "preview": {
+        "png_slot_px_at_96dpi": [
+          177,
+          260
+        ],
+        "cell_rect_xywh_dip": [
+          0,
+          34.25925925925927,
+          176.66666666666666,
+          225.74074074074073
+        ],
+        "difference": "conversation-open/body-difference.png",
+        "inspection": "conversation-open/README.md"
+      }
     },
     {
       "id": "conversation-close",
